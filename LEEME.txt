@@ -1,0 +1,26 @@
+═══════════════════════════════════════════════════════════════
+  ARCHIVOS PARA DISTRIBUCIÓN - GLOSARIO DOBLAJE
+═══════════════════════════════════════════════════════════════
+
+Estos archivos deben subirse a un servidor web con HTTPS.
+
+OPCIONES DE HOSTING GRATIS:
+1. GitHub Pages (recomendado)
+2. Netlify Drop
+3. Tu servidor web propio
+
+INSTRUCCIONES COMPLETAS: Ver GUIA_DISTRIBUCION.md
+
+═══════════════════════════════════════════════════════════════
+
+ARCHIVOS EN ESTA CARPETA:
+- taskpane.html
+- taskpane.js
+- taskpane.css
+- glosario.json
+- commands.html
+- commands.js
+
+SUBIR TODOS estos archivos a la raíz de tu servidor web.
+
+═══════════════════════════════════════════════════════════════
