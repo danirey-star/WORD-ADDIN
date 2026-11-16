@@ -23,7 +23,7 @@ def main():
                                   logging.FileHandler(cfg_path.parent / "servidor.log", encoding="utf-8")])
     db = Path(cfg["db"])
     store = Store(str(db if db.is_absolute() else cfg_path.parent / db))
-    srv = make_server(ServerApi(store, cfg["token"]), "0.0.0.0", int(cfg["port"]))
+    srv = make_server(ServerApi(store, cfg["token"], code_root=HERE), "0.0.0.0", int(cfg["port"]))
     logging.info("Servidor escuchando en el puerto %s", cfg["port"])
     logging.info("Panel: http://127.0.0.1:%s   Token para los agentes: %s", cfg["port"], cfg["token"])
     srv.serve_forever()

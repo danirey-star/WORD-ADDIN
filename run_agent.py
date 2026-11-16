@@ -1,4 +1,4 @@
-"""Arranca el agente en el PC del niño:  python run_agent.py [agente.json]"""
+"""Arranca el agente en el PC del hijo:  python run_agent.py [agente.json]"""
 import json
 import logging
 import logging.handlers

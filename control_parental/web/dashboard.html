@@ -40,9 +40,11 @@
   td.num { text-align: right; white-space: nowrap; }
   .sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
   .bar { height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
-  #chart { width: 100%; overflow-x: auto; }
-  #chart svg { display: block; width: 100%; height: auto; min-width: 520px; }
-  #chart text { fill: var(--muted); font-size: 11px; }
+  .chart { width: 100%; overflow-x: auto; }
+  .chart svg { display: block; width: 100%; height: auto; min-width: 520px; }
+  .chart text { fill: var(--muted); font-size: 11px; }
+  .fg { margin: 12px 0 0; overflow-wrap: anywhere; }
+  .chip.social { border-color: #e07b39; }
   .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 13px; }
   .muted { color: var(--muted); }
   .now { display: flex; gap: 12px; align-items: baseline; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
@@ -58,8 +60,8 @@
   .limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
   .limits input { width: 100%; }
   #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 8px; display: none; }
-  .parent-only { display: none; }
-  body.parent .parent-only { display: block; }
+  .parent-only, .kid-only { display: none; }
+  body.parent .parent-only, body.kid .kid-only { display: block; }
   details summary { cursor: pointer; font-weight: 600; }
   @media (max-width: 600px) { .hide-sm { display: none; } }
 </style>
@@ -79,8 +81,10 @@
     <div class="grid">
       <div class="stat"><div class="v" id="s-games">—</div><div class="l">Juegos hoy</div></div>
       <div class="stat"><div class="v" id="s-left">—</div><div class="l">Tiempo de juego restante hoy</div></div>
+      <div class="stat"><div class="v" id="s-social">—</div><div class="l" id="s-social-l">Redes y vídeo hoy</div></div>
       <div class="stat"><div class="v" id="s-pc">—</div><div class="l">Uso del ordenador hoy</div></div>
     </div>
+    <p class="muted fg" id="s-fg"></p>
     <ul class="reasons" id="reasons"></ul>
   </section>
 
@@ -96,10 +100,16 @@
         <button id="today">Hoy</button>
       </div>
     </div>
-    <div class="row" style="margin-bottom: 8px">
-      <label><input type="checkbox" id="only-games" checked> Solo juegos</label>
+    <h2>Uso general</h2>
+    <div id="chart-ov" class="chart"></div>
+    <div class="legend" id="legend-ov"></div>
+    <div class="row" style="margin: 20px 0 8px; justify-content: space-between">
+      <h2 style="margin: 0">Por programa</h2>
+      <select id="detail" aria-label="Qué mostrar">
+        <option value="game">Juegos</option><option value="social">Redes y vídeo</option><option value="all">Todo</option>
+      </select>
     </div>
-    <div id="chart"></div>
+    <div id="chart" class="chart"></div>
     <div class="legend" id="legend"></div>
   </section>
 
@@ -109,6 +119,32 @@
       <thead><tr><th>Programa</th><th class="hide-sm">Tipo</th><th class="num">Total</th><th class="num">Media/día</th><th style="width:30%" class="hide-sm"></th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
+  </section>
+
+  <section class="card kid-only">
+    <h2>Mis alarmas</h2>
+    <p class="muted" style="margin-top:0">Ponte un aviso para controlar tu tiempo. Suena aunque cierres esta página o estés jugando.</p>
+    <div class="row">
+      <select id="a-kind" aria-label="Tipo de alarma">
+        <option value="timer">Avísame dentro de</option>
+        <option value="games">Avísame cuando lleve de juego hoy</option>
+        <option value="social">Avísame cuando lleve de redes y vídeo hoy</option>
+      </select>
+      <input id="a-min" type="number" min="1" max="720" value="30" style="width: 80px" aria-label="Minutos"> min
+      <input id="a-text" maxlength="100" placeholder="Mensaje (opcional): ¡a cenar!" size="24">
+      <button class="primary" id="a-add">Poner alarma</button>
+    </div>
+    <div class="row" style="margin-top: 8px">
+      <span class="muted">Rápidas:</span>
+      <button data-quick="15">15 min</button><button data-quick="30">30 min</button><button data-quick="60">1 hora</button>
+    </div>
+    <table style="margin-top: 12px"><tbody id="alarms"></tbody></table>
+  </section>
+
+  <section class="card" id="hist-card" style="display:none">
+    <h2 id="hist-title">Historial de alarmas</h2>
+    <table><thead><tr><th>Sonó</th><th>Tenía abierto</th><th>Cerró</th></tr></thead><tbody id="hist"></tbody></table>
+    <p class="muted" style="margin-bottom:0">Últimos 7 días.</p>
   </section>
 
   <section class="card parent-only">
@@ -123,12 +159,13 @@
       </label>
       <button class="danger" data-block="internet">Bloquear internet</button>
       <button class="danger" data-block="games">Bloquear juegos</button>
+      <button class="danger" data-block="social">Bloquear redes y vídeo</button>
       <input id="b-apps" placeholder="apps: discord.exe, chrome.exe" size="26">
       <button class="danger" data-block="apps">Bloquear apps</button>
     </div>
     <table style="margin-top: 12px"><tbody id="manual"></tbody></table>
     <div class="row" style="margin-top: 8px"><button id="unblock-all">Quitar todos los bloqueos manuales</button></div>
-    <p class="muted" style="margin-bottom:0">El PC del niño recoge los cambios en unos 30 segundos.</p>
+    <p class="muted" style="margin-bottom:0">El PC de tu hijo recoge los cambios en unos 30 segundos.</p>
   </section>
 
   <section class="card parent-only">
@@ -142,17 +179,21 @@
   </section>
 
   <section class="card parent-only">
-    <h2>Límite diario de juego (minutos)</h2>
+    <h2>Límites diarios (minutos)</h2>
+    <strong>Juegos</strong>
     <div class="limits" id="limits"></div>
-    <p class="muted">Vacío = sin límite. Al llegar al límite se cierran los juegos (con aviso 5 min antes).</p>
+    <strong style="display:block; margin-top: 12px">Redes y vídeo</strong>
+    <div class="limits" id="slimits"></div>
+    <p class="muted">Vacío = sin límite. Al llegarlo se cierran los juegos, o las redes y webs de vídeo, con aviso 5 min antes. Las redes y el vídeo solo cuentan mientras se están usando (ventana delante).</p>
   </section>
 
   <section class="card parent-only">
     <details>
       <summary>Juegos y apps reconocidos</summary>
-      <p class="muted">Una línea por programa: <code>Nombre = ejecutable1.exe, ejecutable2.exe</code>. Los juegos instalados con Steam, Epic, Riot, Xbox, EA, Ubisoft o GOG se detectan solos. Para ver el nombre del ejecutable: Administrador de tareas → Detalles.</p>
+      <p class="muted">Una línea por programa: <code>Nombre = ejecutable1.exe, ejecutable2.exe</code>. En redes y vídeo también webs: <code>YouTube = youtube.com, youtu.be</code>. Los juegos instalados con Steam, Epic, Riot, Xbox, EA, Ubisoft o GOG se detectan solos. Para ver el nombre del ejecutable: Administrador de tareas → Detalles.</p>
       <div class="grid">
         <div><strong>Juegos</strong><textarea id="games"></textarea></div>
+        <div><strong>Redes y vídeo</strong> <span class="muted">(webs y apps)</span><textarea id="social"></textarea></div>
         <div><strong>Otras apps</strong><textarea id="apps"></textarea></div>
         <div><strong>Ignorar (lanzadores…)</strong><textarea id="ignore"></textarea></div>
       </div>
@@ -170,8 +211,9 @@
 const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
 const DAY_ES = ["L","M","X","J","V","S","D"];
 const DAY_LONG = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
-const TYPE_ES = { internet: "Internet", games: "Juegos", apps: "Apps" };
-const CAT_ES = { game: "Juego", app: "App", pc: "Total PC" };
+const TYPE_ES = { internet: "Internet", games: "Juegos", social: "Redes y vídeo", apps: "Apps" };
+const CAT_ES = { game: "Juego", social: "Redes/vídeo", app: "App", pc: "Total PC" };
+const OVERVIEW = [["game", "Juegos", "#3b6fd8"], ["social", "Redes y vídeo", "#e07b39"], ["other", "Resto del ordenador", "#9aa3b5"]];
 const PALETTE = ["#3b6fd8","#e07b39","#2e9e6e","#c8443a","#8a5cc7","#c9a227","#2a9bb5","#d1608f","#6b7f2d","#7a6455"];
 const st = { readonly: true, device: null, period: "day", date: todayStr(), config: null, colors: {} };
 
@@ -214,6 +256,14 @@ async function loadDevices() {
   const s = d.status || {}, b = s.blocks || {};
   document.getElementById("s-games").textContent = s.game_seconds_today != null ? fmt(s.game_seconds_today) : "—";
   document.getElementById("s-left").textContent = b.game_minutes_left == null ? "Sin límite" : fmt(b.game_minutes_left * 60);
+  document.getElementById("s-social").textContent = s.social_seconds_today != null ? fmt(s.social_seconds_today) : "—";
+  document.getElementById("s-social-l").textContent = "Redes y vídeo hoy" + (b.social_minutes_left == null ? "" : ` · quedan ${fmt(b.social_minutes_left * 60)}`);
+  const fgEl = document.getElementById("s-fg");
+  const fg = d.online && s.session_active ? s.foreground : null;
+  fgEl.innerHTML = !fg ? "" : `Usando ahora: <b>${esc(fg.title || "(sin título)")}</b> · ${esc(fg.exe || "?")}`
+    + (s.idle_seconds >= 300 ? ` · <span class="muted">sin tocar teclado ni ratón desde hace ${fmt(s.idle_seconds)}</span>` : "");
+  renderAlarms(s.alarms || []);
+  renderHistory(s.alarm_history || []);
   const nowEl = document.getElementById("s-now");
   if (!d.online) nowEl.innerHTML = `<span class="muted">PC apagado o sin conexión</span>`;
   else if (!s.session_active) nowEl.innerHTML = `<span class="muted">Nadie usando el ordenador (sesión cerrada o bloqueada)</span>`;
@@ -230,9 +280,11 @@ async function loadUsage() {
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("sel", b.dataset.p === st.period));
   const today = (st.period === "day" && st.date === todayStr()) ? u : await api(`/api/usage?${q()}&period=day&date=${todayStr()}`);
   document.getElementById("s-pc").textContent = fmt(today.pc_total);
-  const onlyGames = document.getElementById("only-games").checked;
-  const series = u.series.filter(s => onlyGames ? s.category === "game" : s.category !== "pc");
-  drawChart(u.labels, series);
+  const ov = OVERVIEW.map(([k, name, c]) => ({ name, color: c, seconds: u.overview[k], total: u.overview[k].reduce((a, b) => a + b, 0) }));
+  drawChart("chart-ov", "legend-ov", u.labels, ov, `Total · ${fmt(u.pc_total)}`);
+  const det = document.getElementById("detail").value;
+  const series = u.series.filter(s => det === "all" ? s.category !== "pc" : s.category === det);
+  drawChart("chart", "legend", u.labels, series);
   const max = Math.max(1, ...u.series.map(s => s.total));
   const rows = u.series.map(s => `<tr>
       <td><span class="sw" style="background:${s.category === "pc" ? "var(--muted)" : color(s.name)}"></span>${esc(s.name)}</td>
@@ -243,7 +295,8 @@ async function loadUsage() {
   document.getElementById("tbody").innerHTML = rows.join("") || `<tr><td colspan="5" class="muted">Sin datos en este periodo.</td></tr>`;
 }
 
-function drawChart(labels, series) {
+function drawChart(chartId, legendId, labels, series, extra) {
+  const col = s => s.color || color(s.name);
   const W = 900, H = 280, L = 44, B = 26, T = 10, n = labels.length;
   const totals = labels.map((_, i) => series.reduce((a, s) => a + s.seconds[i], 0));
   const maxSec = Math.max(...totals, 1);
@@ -265,13 +318,51 @@ function drawChart(labels, series) {
     series.forEach(s => {
       const v = s.seconds[i]; if (!v) return;
       const y1 = y(acc + v), y0 = y(acc); acc += v;
-      g += `<rect x="${x}" y="${y1}" width="${w}" height="${Math.max(0.5, y0 - y1)}" fill="${color(s.name)}" rx="2"><title>${esc(s.name)}: ${fmt(v)}</title></rect>`;
+      g += `<rect x="${x}" y="${y1}" width="${w}" height="${Math.max(0.5, y0 - y1)}" fill="${col(s)}" rx="2"><title>${esc(lab)} · ${esc(s.name)}: ${fmt(v)}</title></rect>`;
     });
     const showLab = n <= 14 || i % Math.ceil(n / 14) === 0;
     if (showLab) g += `<text x="${L + i * bw + bw / 2}" y="${H - 8}" text-anchor="middle">${esc(lab)}</text>`;
   });
-  document.getElementById("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Uso por periodo" style="color:var(--text)">${g}</svg>`;
-  document.getElementById("legend").innerHTML = series.map(s => `<span><span class="sw" style="background:${color(s.name)}"></span>${esc(s.name)} · ${fmt(s.total)}</span>`).join("");
+  document.getElementById(chartId).innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Uso por periodo" style="color:var(--text)">${g}</svg>`;
+  document.getElementById(legendId).innerHTML = (extra ? `<strong>${esc(extra)}</strong>` : "")
+    + series.map(s => `<span><span class="sw" style="background:${col(s)}"></span>${esc(s.name)} · ${fmt(s.total)}</span>`).join("")
+    + (series.length ? "" : `<span class="muted">Sin datos en este periodo.</span>`);
+}
+
+// ---------------- alarmas de tu hijo ----------------
+function alarmText(a) {
+  const what = a.kind === "timer" ? `a las ${a.due.slice(11, 16)} (${a.minutes} min)`
+    : `al llevar ${fmt(a.minutes * 60)} de ${a.kind === "games" ? "juego" : "redes y vídeo"} hoy`;
+  return what + (a.text ? ` · «${esc(a.text)}»` : "");
+}
+function renderAlarms(list) {
+  if (st.readonly) {
+    document.getElementById("alarms").innerHTML = list.length
+      ? list.map(a => `<tr><td>⏰ ${alarmText(a)}</td><td class="num"><button data-del="${esc(a.id)}">Quitar</button></td></tr>`).join("")
+      : `<tr><td class="muted">No tienes alarmas puestas.</td></tr>`;
+    document.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => renderAlarms(await api("/api/alarm/delete", { method: "POST", body: JSON.stringify({ id: b.dataset.del }) })));
+  } else {
+    // El padre ve las alarmas que se ha puesto tu hijo (solo lectura).
+    const fg = document.getElementById("s-fg");
+    if (list.length) fg.innerHTML += `<br>Alarmas que se ha puesto: ${list.map(alarmText).join(" · ")}`;
+  }
+}
+function renderHistory(list) {
+  document.getElementById("hist-card").style.display = list.length ? "" : "none";
+  document.getElementById("hist-title").textContent = st.readonly ? "Mis alarmas: cuándo sonaron y cuándo cerré" : "Sus alarmas: cuándo sonaron y cuándo cerró";
+  const hm = iso => iso.slice(11, 16), day = iso => iso.slice(0, 10) === todayStr() ? "hoy" : iso.slice(8, 10) + "/" + iso.slice(5, 7);
+  document.getElementById("hist").innerHTML = list.slice().reverse().map(h => {
+    const late = h.closed ? Math.max(0, Math.floor((new Date(h.closed) - new Date(h.fired)) / 60000)) : null;
+    const closed = !h.open.length ? `<span class="muted">—</span>`
+      : !h.closed ? `<span class="pill block">aún abierto</span>`
+      : `${hm(h.closed)} · ${late ? `<b>${late} min después</b>` : `<span class="pill on">al momento</span>`}`;
+    return `<tr><td>${day(h.fired)} ${hm(h.fired)}${h.text ? ` <span class="muted">«${esc(h.text)}»</span>` : ""}</td>
+      <td>${h.open.length ? esc(h.open.join(", ")) : `<span class="muted">nada (ni juegos ni redes)</span>`}</td><td>${closed}</td></tr>`;
+  }).join("");
+}
+async function addAlarm(kind, minutes, text) {
+  try { renderAlarms(await api("/api/alarm", { method: "POST", body: JSON.stringify({ kind, minutes: Number(minutes), text }) })); toast("Alarma puesta"); }
+  catch (e) { toast(e.message); }
 }
 
 function shiftDate(dir) {
@@ -307,8 +398,11 @@ function renderConfig(c) {
   st.config = c;
   document.getElementById("scheds").innerHTML = "";
   (c.schedules || []).forEach(schedRow);
-  document.getElementById("limits").innerHTML = DAYS.map((d, i) => `<label>${DAY_LONG[i]}<input type="number" min="0" step="15" data-day="${d}" value="${c.daily_game_limit_min[d] ?? ""}"></label>`).join("");
+  const lim = (m) => DAYS.map((d, i) => `<label>${DAY_LONG[i]}<input type="number" min="0" step="15" data-day="${d}" value="${(m || {})[d] ?? ""}"></label>`).join("");
+  document.getElementById("limits").innerHTML = lim(c.daily_game_limit_min);
+  document.getElementById("slimits").innerHTML = lim(c.daily_social_limit_min);
   document.getElementById("games").value = mapToText(c.games);
+  document.getElementById("social").value = mapToText(c.social);
   document.getElementById("apps").value = mapToText(c.apps);
   document.getElementById("ignore").value = (c.ignore || []).join("\n");
   document.getElementById("autodetect").checked = !!c.auto_detect_games;
@@ -339,9 +433,11 @@ async function save() {
     start: tr.querySelector(".start").value, end: tr.querySelector(".end").value,
     type: tr.querySelector(".type").value,
     apps: tr.querySelector(".apps").value.split(",").map(s => s.trim()).filter(Boolean), enabled: true }));
-  c.daily_game_limit_min = {};
-  document.querySelectorAll("#limits input").forEach(i => c.daily_game_limit_min[i.dataset.day] = i.value === "" ? null : Number(i.value));
+  const readLim = sel => { const m = {}; document.querySelectorAll(sel + " input").forEach(i => m[i.dataset.day] = i.value === "" ? null : Number(i.value)); return m; };
+  c.daily_game_limit_min = readLim("#limits");
+  c.daily_social_limit_min = readLim("#slimits");
   c.games = textToMap(document.getElementById("games").value);
+  c.social = textToMap(document.getElementById("social").value);
   c.apps = textToMap(document.getElementById("apps").value);
   c.ignore = document.getElementById("ignore").value.split("\n").map(s => s.trim()).filter(Boolean);
   c.auto_detect_games = document.getElementById("autodetect").checked;
@@ -360,12 +456,16 @@ async function refresh() { try { await loadDevices(); await loadUsage(); } catch
   const mode = await api("/api/mode");
   st.readonly = mode.readonly;
   document.body.classList.toggle("parent", !st.readonly);
+  document.body.classList.toggle("kid", st.readonly);
+  document.getElementById("a-add").onclick = () => addAlarm(document.getElementById("a-kind").value,
+    document.getElementById("a-min").value, document.getElementById("a-text").value.trim());
+  document.querySelectorAll("[data-quick]").forEach(b => b.onclick = () => addAlarm("timer", b.dataset.quick, ""));
   document.getElementById("title").textContent = st.readonly ? "Mi tiempo de pantalla" : "Control parental";
   document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { st.period = b.dataset.p; loadUsage(); });
   document.getElementById("prev").onclick = () => shiftDate(-1);
   document.getElementById("next").onclick = () => shiftDate(1);
   document.getElementById("today").onclick = () => { st.date = todayStr(); loadUsage(); };
-  document.getElementById("only-games").onchange = loadUsage;
+  document.getElementById("detail").onchange = loadUsage;
   document.getElementById("device").onchange = e => { st.device = e.target.value; st.colors = {}; refresh(); if (!st.readonly) loadConfig(); };
   document.querySelectorAll("[data-block]").forEach(b => b.onclick = () => block(b.dataset.block));
   document.getElementById("unblock-all").onclick = () => unblock(null);

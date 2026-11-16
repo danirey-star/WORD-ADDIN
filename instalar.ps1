@@ -1,12 +1,10 @@
 ﻿# Instalador único de Control Parental. Ejecutar como administrador (lo hace Instalar.bat).
-#   -Modo control      -> PC del padre (panel de control e histórico)
-#   -Modo agente       -> PC del niño (medición y bloqueos)
+#   -Modo control      -> PC del padre (panel de control e histórico). Deja en el escritorio
+#                         "Instalar cliente.bat": un solo archivo con todo lo que
+#                         necesita el PC de tu hijo (programa, IP y token ya puestos).
 #   -Modo desinstalar  -> quita de este PC lo que haya instalado
 param(
-    [ValidateSet("", "control", "agente", "desinstalar")] [string]$Modo = "",
-    [string]$Servidor,            # (agente) IP del PC del padre, p. ej. 192.168.1.50
-    [string]$Token,               # (agente) token que muestra la instalación del control
-    [string]$Nombre = $env:COMPUTERNAME,
+    [ValidateSet("", "control", "desinstalar")] [string]$Modo = "",
     [int]$Puerto = 8765
 )
 $ErrorActionPreference = "Stop"
@@ -18,25 +16,34 @@ $TareaControl = "ControlParental-Servidor"
 $ReglaEntrada = "ControlParental Servidor"
 
 # ------------------------------------------------------------------ utilidades
-function Find-Python {
-    $cands = @()
-    try { $cands += (& py -3 -c "import sys; print(sys.executable)" 2>$null) } catch {}
-    try { $cands += (Get-Command python -All -ErrorAction SilentlyContinue | ForEach-Object Source) } catch {}
-    $cands += Get-ChildItem "$env:ProgramFiles\Python3*\python.exe" -ErrorAction SilentlyContinue | ForEach-Object FullName
-    foreach ($c in $cands) {
-        # El "python.exe" de WindowsApps es solo un acceso a la Microsoft Store.
-        if ($c -and (Test-Path $c) -and ($c -notmatch "WindowsApps")) {
-            $v = & $c -c "import sys; print(sys.version_info >= (3, 10))" 2>$null
-            if ($v -eq "True") { return $c }
-        }
-    }
-    Write-Host "No se ha encontrado Python 3.10 o superior. Instalando con winget..." -ForegroundColor Yellow
-    winget install -e --id Python.Python.3.12 --scope machine --silent --accept-package-agreements --accept-source-agreements
-    $p = Get-ChildItem "$env:ProgramFiles\Python3*\python.exe" -ErrorAction SilentlyContinue | Select-Object -Last 1
-    if (-not $p) { throw "No se pudo instalar Python. Instalalo desde python.org (marca 'Install for all users') y repite." }
-    return $p.FullName
+# Python portatil oficial de python.org (no se instala en Windows: es solo una carpeta) y psutil.
+$PyZipUrl = "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"
+$PyZipSha = "4ACBED6DD1C744B0376E3B1CF57CE906F9DC9E95E68824584C8099A63025A3C3"
+$PsutilUrl = "https://files.pythonhosted.org/packages/50/1b/6921afe68c74868b4c9fa424dad3be35b095e16687989ebbb50ce4fceb7c/psutil-7.0.0-cp37-abi3-win_amd64.whl"
+$PsutilSha = "4CF3D4EB1AA9B348DEC30105C55CD9B7D4629285735A102BEB4441E38DB90553"
+
+function Get-Descarga($url, $sha, $dest) {
+    if ((Test-Path $dest) -and ((Get-FileHash $dest).Hash -eq $sha)) { return }
+    Write-Host "Descargando $(Split-Path $url -Leaf)..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest $url -OutFile $dest -UseBasicParsing
+    if ((Get-FileHash $dest).Hash -ne $sha) { Remove-Item $dest; throw "La descarga no coincide con la esperada: $url" }
 }
 
+function New-PythonPortable($dest, [switch]$ConPsutil) {
+    $cache = "$DirControl\descargas"
+    New-Item -ItemType Directory -Force -Path $cache | Out-Null
+    Get-Descarga $PyZipUrl $PyZipSha "$cache\python-embed.zip"
+    if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::ExtractToDirectory("$cache\python-embed.zip", $dest)
+    if ($ConPsutil) {
+        Get-Descarga $PsutilUrl $PsutilSha "$cache\psutil.whl"
+        [IO.Compression.ZipFile]::ExtractToDirectory("$cache\psutil.whl", $dest)
+    }
+    # Rutas de Python: su biblioteca, su carpeta (psutil) y ".." (la carpeta del programa).
+    Set-Content -Path "$dest\python312._pth" -Value "python312.zip`r`n.`r`n.." -Encoding ASCII
+}
 function Stop-Tarea($name) {
     if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
         Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
@@ -97,11 +104,12 @@ function Show-SecurityWarnings($path) {
 function Install-Control {
     Write-Host "`n== Instalando el CONTROL (PC del padre) en $DirControl ==" -ForegroundColor Cyan
     Stop-Tarea $TareaControl
-    $py = Find-Python
-    $pyw = Join-Path (Split-Path $py) "pythonw.exe"
     New-Item -ItemType Directory -Force -Path $DirControl | Out-Null
+    New-PythonPortable "$DirControl\python"
+    $pyw = "$DirControl\python\pythonw.exe"
     Copy-Item -Recurse -Force "$Origen\control_parental" $DirControl
-    Copy-Item -Force "$Origen\run_server.py" $DirControl
+    # run_agent.py y ayudante.py: el servidor los reparte por red a los PCs de tus hijos (actualizacion automatica).
+    Copy-Item -Force "$Origen\run_server.py", "$Origen\run_agent.py", "$Origen\ayudante.py" $DirControl
 
     $cfgPath = "$DirControl\servidor.json"
     if (-not (Test-Path $cfgPath)) {
@@ -122,57 +130,52 @@ function Install-Control {
     Register-SystemTask $TareaControl $pyw "`"$DirControl\run_server.py`" `"$cfgPath`"" $DirControl
     New-UrlShortcut "Control parental" "http://127.0.0.1:$($cfg.port)/"
 
-    $ips = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notmatch "^(127|169\.254)\." } | ForEach-Object IPAddress
+    $bat = New-InstaladorHijo $cfg
     Write-Host "`nControl instalado. Panel: http://127.0.0.1:$($cfg.port)" -ForegroundColor Green
-    Write-Host "IP(s) de este PC: $($ips -join ', ')"
-    Write-Host "Token: $($cfg.token)" -ForegroundColor Yellow
-    Write-Host "`nEn el PC del nino ejecuta Instalar.bat, elige 'Agente' e introduce la IP y el token anteriores."
+    Write-Host "`nPara el PC de tu hijo tienes en el escritorio:" -ForegroundColor Yellow
+    Write-Host "  $bat"
+    Write-Host "Copialo a su PC (USB, red...) y dale doble clic. No hace falta nada mas."
+    Write-Host "Lleva la clave de acceso dentro: borralo de su PC despues de instalar."
     Write-Host "Consejo: fija la IP de este PC en el router (reserva DHCP) para que no cambie."
     Show-SecurityWarnings $DirControl
 }
 
-# ------------------------------------------------------------------ agente (PC del niño)
-function Install-Agente {
-    $ip = $Servidor
-    $tok = $Token
-    if (-not $ip) { $ip = Read-Host "IP del PC del padre (p. ej. 192.168.1.50)" }
-    if (-not $tok) { $tok = Read-Host "Token (lo muestra la instalacion del control)" }
+function New-InstaladorHijo($cfg) {
+    # Un solo .bat con el instalador del agente, el programa (zip en base64) y la IP y el token ya puestos.
+    $ips = @(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq "Up" } |
+        ForEach-Object { $_.IPv4Address.IPAddress })
+    $ips += Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notmatch "^(127|169\.254)\." } | ForEach-Object IPAddress
+    $ips = $ips | Where-Object { $_ } | Select-Object -Unique
 
-    Write-Host "`n== Instalando el AGENTE (PC del nino) en $DirAgente ==" -ForegroundColor Cyan
-    Stop-Tarea $TareaAgente
-    $py = Find-Python
-    New-Item -ItemType Directory -Force -Path $DirAgente | Out-Null
-    Copy-Item -Recurse -Force "$Origen\control_parental" $DirAgente
-    Copy-Item -Force "$Origen\run_agent.py" $DirAgente
+    $tmp = Join-Path $env:TEMP ("cp_" + [guid]::NewGuid())
+    New-Item -ItemType Directory -Path $tmp | Out-Null
+    Copy-Item -Recurse "$Origen\control_parental" $tmp
+    Copy-Item "$Origen\run_agent.py", "$Origen\ayudante.py" $tmp
+    Get-ChildItem $tmp -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+    New-PythonPortable "$tmp\python" -ConPsutil
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Compression.ZipFile]::CreateFromDirectory($tmp, "$tmp.zip")
+    $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("$tmp.zip"), [Base64FormattingOptions]::InsertLineBreaks)
+    Remove-Item -Recurse -Force $tmp, "$tmp.zip"
 
-    if (-not (Test-Path "$DirAgente\venv\Scripts\pythonw.exe")) { & $py -m venv "$DirAgente\venv" }
-    & "$DirAgente\venv\Scripts\python.exe" -m pip install --quiet --upgrade psutil
-    if ($LASTEXITCODE -ne 0) { throw "No se pudo instalar psutil (hace falta internet durante la instalacion)" }
-
-    @{
-        device             = $Nombre
-        server_url         = "http://${ip}:$Puerto"
-        token              = $tok
-        interval_seconds   = 5
-        sync_seconds       = 30
-        local_port         = 8766
-        always_allowed_ips = @()
-    } | ConvertTo-Json | Set-Content -Path "$DirAgente\agente.json" -Encoding UTF8
-
-    Protect-Folder $DirAgente
-    Add-AntivirusExclusion $DirAgente
-    Register-SystemTask $TareaAgente "$DirAgente\venv\Scripts\pythonw.exe" "`"$DirAgente\run_agent.py`" `"$DirAgente\agente.json`"" $DirAgente
-    New-UrlShortcut "Mi tiempo de pantalla" "http://127.0.0.1:8766/"
-
-    Start-Sleep 8
-    try {
-        Invoke-RestMethod "http://127.0.0.1:8766/api/mode" | Out-Null
-        Write-Host "`nAgente funcionando. Panel del nino: http://127.0.0.1:8766" -ForegroundColor Green
-    } catch {
-        Write-Host "`nEl agente aun no responde. Revisa $DirAgente\agente.log" -ForegroundColor Yellow
-    }
-    Write-Host "IMPORTANTE: la cuenta de Windows del nino debe ser 'Usuario estandar' (no administrador)."
-    Show-SecurityWarnings $DirAgente
+    $ps = (Get-Content "$Origen\agente_instalador.ps1" -Raw).Replace("__SERVIDORES__", ($ips -join ",")).
+        Replace("__PUERTO__", [string]$cfg.port).Replace("__TOKEN__", $cfg.token)
+    # Cabecera: pide administrador, extrae el bloque de PowerShell de este mismo archivo y lo ejecuta.
+    $cab = @"
+@echo off
+rem Instalador de Control Parental para el PC de tu hijo. Solo hace falta este archivo.
+set "CP_BAT=%~f0"
+net session >nul 2>&1 || goto elevar
+powershell -NoProfile -ExecutionPolicy Bypass -Command "`$t=[IO.File]::ReadAllText(`$env:CP_BAT); `$i=`$t.IndexOf('#'+'PS#')+4; iex `$t.Substring(`$i, `$t.IndexOf('#'+'ZIP#')-`$i)"
+pause
+exit /b
+:elevar
+powershell -NoProfile -Command "Start-Process -Verb RunAs -FilePath `$env:CP_BAT"
+exit /b
+"@
+    $dest = Join-Path ([Environment]::GetFolderPath("Desktop")) "Instalar cliente.bat"
+    [IO.File]::WriteAllText($dest, ($cab + "`r`n#PS#`r`n" + $ps + "`r`n#ZIP#`r`n" + $b64 + "`r`n"), [Text.Encoding]::ASCII)
+    return $dest
 }
 
 # ------------------------------------------------------------------ desinstalar
@@ -186,6 +189,10 @@ function Uninstall-Todo {
         Get-Process pythonw, python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$DirAgente\*" } | Stop-Process -Force
         netsh advfirewall firewall delete rule name="ControlParental - Bloqueo internet IPv4" | Out-Null
         netsh advfirewall firewall delete rule name="ControlParental - Bloqueo internet IPv6" | Out-Null
+        $h = "$env:SystemRoot\System32\drivers\etc\hosts"
+        $t = [IO.File]::ReadAllText($h)
+        $t2 = [regex]::Replace($t, "(?s)\r?\n?# >>> ControlParental.*?# <<< ControlParental\r?\n?", "`r`n")
+        if ($t2 -ne $t) { [IO.File]::WriteAllText($h, $t2.TrimEnd() + "`r`n"); ipconfig /flushdns | Out-Null }
         Start-Sleep 1
         Remove-Item -Recurse -Force $DirAgente -ErrorAction SilentlyContinue
         try { Remove-MpPreference -ExclusionPath $DirAgente -ErrorAction Stop } catch {}
@@ -215,19 +222,16 @@ function Uninstall-Todo {
 if (-not $Modo) {
     Write-Host "CONTROL PARENTAL - Instalador" -ForegroundColor Cyan
     Write-Host "Que quieres hacer en ESTE ordenador?`n"
-    Write-Host "  1) Instalar el CONTROL   (PC del padre: panel, historico y bloqueos)"
-    Write-Host "  2) Instalar el AGENTE    (PC del nino: mide el uso y aplica los bloqueos)"
-    Write-Host "  3) Desinstalar de este PC"
-    Write-Host "  4) Salir`n"
-    switch (Read-Host "Elige 1, 2, 3 o 4") {
+    Write-Host "  1) Instalar el CONTROL en este PC (el tuyo) y crear el instalador del PC de tu hijo"
+    Write-Host "  2) Desinstalar de este PC"
+    Write-Host "  3) Salir`n"
+    switch (Read-Host "Elige 1, 2 o 3") {
         "1" { $Modo = "control" }
-        "2" { $Modo = "agente" }
-        "3" { $Modo = "desinstalar" }
+        "2" { $Modo = "desinstalar" }
         default { return }
     }
 }
 switch ($Modo) {
     "control" { Install-Control }
-    "agente" { Install-Agente }
     "desinstalar" { Uninstall-Todo }
 }

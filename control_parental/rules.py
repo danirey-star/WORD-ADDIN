@@ -25,10 +25,25 @@ DEFAULT_CONFIG: dict = {
         "EA Sports FC": ["FC25.exe", "FC26.exe"],
         "Brawlhalla": ["Brawlhalla.exe"],
     },
-    # Otras apps que interesa medir (no cuentan para el límite de juegos).
+    # Otras apps que interesa medir (no cuentan para ningún límite).
     "apps": {
         "Discord": ["Discord.exe"],
+        "WhatsApp": ["WhatsApp.exe", "WhatsApp.Root.exe"],
+        "Telegram": ["Telegram.exe"],
         "Navegador": ["chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe"],
+    },
+    # Redes sociales y vídeo: webs (dominios) y apps (.exe). Solo cuenta el tiempo que
+    # están en primer plano (la ventana que se está usando), no el que están abiertas.
+    # La web se reconoce por el título de la ventana del navegador.
+    "social": {
+        "YouTube": ["youtube.com", "youtu.be", "youtube-nocookie.com", "music.youtube.com"],
+        "TikTok": ["tiktok.com", "TikTok.exe"],
+        "Instagram": ["instagram.com", "Instagram.exe"],
+        "Facebook": ["facebook.com", "fb.com", "messenger.com", "Facebook.exe", "Messenger.exe"],
+        "X (Twitter)": ["x.com", "twitter.com"],
+        "Snapchat": ["snapchat.com"],
+        "Twitch": ["twitch.tv", "Twitch.exe"],
+        "Reddit": ["reddit.com"],
     },
     # Detecta como juego cualquier programa dentro de carpetas de Steam, Epic, etc.
     "auto_detect_games": True,
@@ -43,12 +58,14 @@ DEFAULT_CONFIG: dict = {
     ],
     # Minutos de juego por día de la semana (null = sin límite).
     "daily_game_limit_min": {d: None for d in DAYS},
-    # Franjas horarias. type: "internet" | "games" | "apps".
+    # Minutos de redes sociales y vídeo por día de la semana (null = sin límite).
+    "daily_social_limit_min": {d: None for d in DAYS},
+    # Franjas horarias. type: "internet" | "games" | "social" | "apps".
     # Si end < start la franja cruza la medianoche (p.ej. 22:00-07:00).
     "schedules": [],
     # Bloqueos manuales: {"type": ..., "apps": [...], "until": "YYYY-MM-DDTHH:MM" | null}
     "manual_blocks": [],
-    # Avisar al niño X minutos antes de que empiece un bloqueo / se acabe el tiempo.
+    # Avisar al hijo X minutos antes de que empiece un bloqueo / se acabe el tiempo.
     "warn_minutes": 5,
 }
 
@@ -61,6 +78,7 @@ def merged_config(cfg: dict | None) -> dict:
             out[k] = copy.deepcopy(v)
     for d in DAYS:
         out["daily_game_limit_min"].setdefault(d, None)
+        out["daily_social_limit_min"].setdefault(d, None)
     return out
 
 
@@ -81,6 +99,33 @@ _AUTO_EXCLUDED_FOLDERS = {"launcher", "riot client", "steamworks shared", "direc
                           "epic online services"}
 
 
+BROWSERS = {"chrome.exe", "msedge.exe", "firefox.exe", "opera.exe", "brave.exe", "vivaldi.exe",
+            "iexplore.exe", "msedgewebview2.exe", "chromium.exe", "opera_gx.exe"}
+_SEP = re.compile(r"\s+[-–—|•·/:]\s+|\s+[|•·/]\s*|\s*[|•·]\s+")
+_BROWSER_NAMES = {"google chrome", "microsoft edge", "mozilla firefox", "firefox", "brave", "opera",
+                  "vivaldi", "chromium", "personal", "trabajo", "work", "inprivate", "incógnito",
+                  "navegación privada", "private browsing"}
+_MORE_TABS = re.compile(r"\s+(y|and)\s+\d+\s+(páginas?|pestañas?|more|other)\b.*$", re.I)
+_SEARCH = ("google", "bing", "duckduckgo", "buscar", "búsqueda", "search", "yahoo", "ecosia")
+_COUNTER = re.compile(r"^\(\d+\+?\)\s*")
+
+
+def match_title(title: str, words: list[tuple[str, str]]) -> str | None:
+    """Reconoce la web por el título de la pestaña, p. ej. 'Vídeo - YouTube - Google Chrome'.
+    La palabra tiene que ser un trozo entero del título (o su comienzo, si es larga), y no
+    cuenta una búsqueda ('youtube - Buscar con Google')."""
+    t = title.replace("​", "").strip().lower()
+    segs = [_COUNTER.sub("", _MORE_TABS.sub("", s.strip())).strip() for s in _SEP.split(t)]
+    segs = [s for s in segs if s and s not in _BROWSER_NAMES]
+    if not segs or any(k in segs[-1] for k in _SEARCH):
+        return None
+    for w, name in words:
+        for s in segs:
+            if s == w or (len(w) >= 4 and s.startswith(w + " ")):
+                return name
+    return None
+
+
 class Classifier:
     """Convierte (exe, ruta) en (nombre, categoría) o None si no interesa."""
 
@@ -94,6 +139,42 @@ class Classifier:
             for e in exes:
                 self.by_exe[e.lower()] = (name, "game")
         self.auto = cfg.get("auto_detect_games", True)
+        # Redes y vídeo: por ejecutable (apps) o por palabra del título (webs).
+        self.social_exe: dict[str, str] = {}
+        self.social_words: list[tuple[str, str]] = []
+        self.social_domains: list[str] = []
+        for name, items in cfg.get("social", {}).items():
+            for it in items:
+                it = it.strip().lower()
+                if it.endswith(".exe"):
+                    self.social_exe[it] = name
+                elif "." in it:
+                    self.social_domains.append(it)
+                    # "music.youtube.com" -> "youtube"; "x.com" -> "x"
+                    self.social_words.append((it.split(".")[-2], name))
+                elif it:
+                    self.social_words.append((it, name))
+
+    def social_for(self, exe: str | None, title: str | None) -> str | None:
+        """Red social o web de vídeo que se está usando en la ventana de primer plano."""
+        exe_l = (exe or "").lower()
+        if exe_l in self.social_exe:
+            return self.social_exe[exe_l]
+        if exe_l in BROWSERS and title:
+            return match_title(title, self.social_words)
+        return None
+
+    def social_exes(self) -> set[str]:
+        return set(self.social_exe)
+
+    def blocked_domains(self) -> list[str]:
+        """Dominios para el archivo hosts (con sus variantes www. y m.)."""
+        out = []
+        for d in self.social_domains:
+            out.append(d)
+            if d.count(".") == 1:
+                out += ["www." + d, "m." + d]
+        return sorted(set(out))
 
     def classify(self, exe: str, path: str | None) -> tuple[str, str] | None:
         exe_l = (exe or "").lower()
@@ -119,13 +200,17 @@ class Classifier:
 class BlockState:
     internet: bool = False
     games: bool = False
+    social: bool = False
     apps: set[str] = field(default_factory=set)  # exes en minúscula
     reasons: list[str] = field(default_factory=list)
     game_minutes_left: float | None = None  # None = sin límite hoy
+    social_minutes_left: float | None = None
 
     def to_dict(self) -> dict:
-        return {"internet": self.internet, "games": self.games, "apps": sorted(self.apps),
-                "reasons": self.reasons, "game_minutes_left": self.game_minutes_left}
+        return {"internet": self.internet, "games": self.games, "social": self.social,
+                "apps": sorted(self.apps), "reasons": self.reasons,
+                "game_minutes_left": self.game_minutes_left,
+                "social_minutes_left": self.social_minutes_left}
 
 
 def _hm(s: str) -> int:
@@ -164,6 +249,8 @@ def _apply(state: BlockState, rule: dict, reason: str) -> None:
         state.internet = True
     elif kind == "games":
         state.games = True
+    elif kind == "social":
+        state.social = True
     elif kind == "apps":
         state.apps.update(a.lower() for a in rule.get("apps", []))
     else:
@@ -175,10 +262,11 @@ def _describe(rule: dict) -> str:
     kind = rule.get("type")
     if kind == "apps":
         return "apps (" + ", ".join(rule.get("apps", [])) + ")"
-    return {"internet": "internet", "games": "juegos"}.get(kind, str(kind))
+    return {"internet": "internet", "games": "juegos", "social": "redes y vídeo"}.get(kind, str(kind))
 
 
-def evaluate(cfg: dict, now: datetime, game_seconds_today: float) -> BlockState:
+def evaluate(cfg: dict, now: datetime, game_seconds_today: float,
+             social_seconds_today: float = 0) -> BlockState:
     st = BlockState()
     for s in cfg.get("schedules", []):
         if s.get("enabled", True) and schedule_active(s, now):
@@ -195,6 +283,13 @@ def evaluate(cfg: dict, now: datetime, game_seconds_today: float) -> BlockState:
         if left <= 0:
             st.games = True
             st.reasons.append(f"Límite diario de juego alcanzado ({limit} min)")
+    limit = cfg.get("daily_social_limit_min", {}).get(DAYS[now.weekday()])
+    if limit is not None:
+        left = limit - social_seconds_today / 60
+        st.social_minutes_left = max(0.0, round(left, 1))
+        if left <= 0:
+            st.social = True
+            st.reasons.append(f"Límite diario de redes y vídeo alcanzado ({limit} min)")
     return st
 
 
@@ -216,6 +311,10 @@ def upcoming_warnings(cfg: dict, now: datetime, state: BlockState) -> list[tuple
     if left is not None and 0 < left <= warn and not state.games:
         out.append((f"limit:{now.date()}",
                     f"Te quedan {int(round(left))} minutos de juego hoy. ¡Ve guardando la partida!"))
+    left = state.social_minutes_left
+    if left is not None and 0 < left <= warn and not state.social:
+        out.append((f"slimit:{now.date()}",
+                    f"Te quedan {int(round(left))} minutos de redes y vídeo hoy."))
     return out
 
 
