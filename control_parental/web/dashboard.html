@@ -45,6 +45,13 @@
   #chart text { fill: var(--muted); font-size: 11px; }
   .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 13px; }
   .muted { color: var(--muted); }
+  .now { display: flex; gap: 12px; align-items: baseline; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .now-l { font-size: 18px; white-space: nowrap; }
+  .now-items { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; }
+  .chip.game { border-color: var(--accent); }
+  .chip b { font-size: 16px; }
+  .chip small { display: block; color: var(--muted); }
   .reasons { margin: 8px 0 0; padding-left: 18px; color: var(--danger); }
   textarea { width: 100%; min-height: 150px; font: 13px/1.4 ui-monospace, Consolas, monospace; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
   .days label { margin-right: 6px; font-size: 13px; white-space: nowrap; }
@@ -68,11 +75,11 @@
   </header>
 
   <section class="card">
+    <div class="now"><strong class="now-l">Ahora:</strong><div class="now-items" id="s-now">—</div></div>
     <div class="grid">
       <div class="stat"><div class="v" id="s-games">—</div><div class="l">Juegos hoy</div></div>
       <div class="stat"><div class="v" id="s-left">—</div><div class="l">Tiempo de juego restante hoy</div></div>
       <div class="stat"><div class="v" id="s-pc">—</div><div class="l">Uso del ordenador hoy</div></div>
-      <div class="stat"><div class="v" id="s-now" style="font-size:18px">—</div><div class="l">Abierto ahora</div></div>
     </div>
     <ul class="reasons" id="reasons"></ul>
   </section>
@@ -207,7 +214,12 @@ async function loadDevices() {
   const s = d.status || {}, b = s.blocks || {};
   document.getElementById("s-games").textContent = s.game_seconds_today != null ? fmt(s.game_seconds_today) : "—";
   document.getElementById("s-left").textContent = b.game_minutes_left == null ? "Sin límite" : fmt(b.game_minutes_left * 60);
-  document.getElementById("s-now").textContent = !d.online ? "—" : (s.running && s.running.length ? s.running.join(", ") : (s.session_active ? "Nada" : "Nadie conectado"));
+  const nowEl = document.getElementById("s-now");
+  if (!d.online) nowEl.innerHTML = `<span class="muted">PC apagado o sin conexión</span>`;
+  else if (!s.session_active) nowEl.innerHTML = `<span class="muted">Nadie usando el ordenador (sesión cerrada o bloqueada)</span>`;
+  else if (!(s.now || []).length) nowEl.innerHTML = `<span class="muted">Ordenador en uso, sin juegos ni apps de la lista abiertos</span>`;
+  else nowEl.innerHTML = s.now.map(n => `<div class="chip ${n.category}"><b>${esc(n.name)}</b> <span class="muted">${CAT_ES[n.category] || ""}</span>
+      <small>abierto desde las ${n.since.slice(11, 16)} (${fmt(n.open_seconds)}) · hoy ${fmt(n.seconds_today)}</small></div>`).join("");
   document.getElementById("reasons").innerHTML = (b.reasons || []).map(r => `<li>${esc(r)}</li>`).join("");
 }
 
@@ -361,7 +373,7 @@ async function refresh() { try { await loadDevices(); await loadUsage(); } catch
   document.getElementById("save").onclick = save;
   await refresh();
   if (!st.readonly && st.device) await loadConfig();
-  setInterval(refresh, 30000);
+  setInterval(refresh, 10000);
 })();
 </script>
 </body>
