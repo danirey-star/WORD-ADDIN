@@ -39,3 +39,32 @@ function Register-SystemTask($name, $exe, $arguments, $workdir) {
 function New-UrlShortcut($name, $url) {
     Set-Content -Path (Join-Path "$env:PUBLIC\Desktop" "$name.url") -Value "[InternetShortcut]`r`nURL=$url" -Encoding ASCII
 }
+
+function Add-AntivirusExclusion($path) {
+    # Evita que Microsoft Defender analice o ponga en cuarentena la carpeta del programa.
+    try {
+        Add-MpPreference -ExclusionPath $path -ErrorAction Stop
+        Write-Host "Carpeta excluida del analisis de Microsoft Defender: $path"
+    } catch {
+        Write-Host "No se pudo anadir la exclusion en Microsoft Defender (puede estar gestionado por otro antivirus)." -ForegroundColor Yellow
+    }
+}
+
+function Show-SecurityWarnings($path) {
+    # Avisa si hay un antivirus o firewall de otra marca que pueda interferir.
+    try {
+        $av = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop |
+            Where-Object { $_.displayName -notmatch "Defender" } | ForEach-Object displayName | Select-Object -Unique
+        if ($av) {
+            Write-Host "`nAVISO: antivirus de otra marca detectado: $($av -join ', ')" -ForegroundColor Yellow
+            Write-Host "  Anade a mano esta carpeta a sus exclusiones: $path"
+        }
+        $fw = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName FirewallProduct -ErrorAction Stop |
+            ForEach-Object displayName | Select-Object -Unique
+        if ($fw) {
+            Write-Host "AVISO: firewall de otra marca detectado: $($fw -join ', ')" -ForegroundColor Yellow
+            Write-Host "  Si sustituye al Firewall de Windows, el bloqueo de internet puede no funcionar y habra que"
+            Write-Host "  permitir en el el puerto 8765 (PC del padre). Los bloqueos de juegos y apps no dependen de el."
+        }
+    } catch {}
+}

@@ -85,6 +85,22 @@ Limitaciones a conocer:
   caso el bloqueo funciona igual pero sin aviso previo.
 - El panel del padre solo se abre desde el propio PC del padre.
 
+## Antivirus y firewall
+
+- **Microsoft Defender**: los instaladores excluyen del análisis la carpeta del
+  programa, para que no lo ralentice ni lo ponga en cuarentena. Como la carpeta
+  solo la pueden modificar administradores, la exclusión no abre una puerta a
+  otros programas.
+- **Antivirus de otra marca** (Avast, Kaspersky, ESET…): el instalador lo
+  detecta y te avisa; añade a mano la carpeta a sus exclusiones.
+- **Firewall de otra marca**: si sustituye al Firewall de Windows, el bloqueo
+  de internet puede no funcionar y tendrás que permitir el puerto 8765 en el PC
+  del padre. Los bloqueos de juegos y apps no dependen del firewall.
+- El agente solo cierra programas de la sesión del niño que estén en tus
+  listas; nunca toca servicios del sistema ni del antivirus. Con internet
+  bloqueado el antivirus sigue protegiendo, pero no se actualiza hasta que
+  termina el bloqueo.
+
 ## Archivos
 
 ```

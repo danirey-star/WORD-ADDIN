@@ -25,6 +25,7 @@ if (-not (Test-Path $cfgPath)) {
 }
 $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
 Protect-Folder $Destino
+Add-AntivirusExclusion $Destino
 
 # Permitir conexiones entrantes solo desde la red local.
 Get-NetFirewallRule -DisplayName "ControlParental Servidor" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
@@ -40,3 +41,4 @@ Write-Host "IP(s) de este PC: $($ips -join ', ')"
 Write-Host "Token: $($cfg.token)" -ForegroundColor Yellow
 Write-Host "`nEn el PC del nino ejecuta Instalar-Agente.bat e introduce la IP y el token anteriores."
 Write-Host "Consejo: fija la IP de este PC en el router (reserva DHCP) para que no cambie."
+Show-SecurityWarnings $Destino

@@ -40,6 +40,7 @@ if ($LASTEXITCODE -ne 0) { throw "No se pudo instalar psutil (¿hay internet?)" 
 } | ConvertTo-Json | Set-Content -Path "$Destino\agente.json" -Encoding UTF8
 
 Protect-Folder $Destino
+Add-AntivirusExclusion $Destino
 Register-SystemTask $Tarea "$Destino\venv\Scripts\pythonw.exe" "`"$Destino\run_agent.py`" `"$Destino\agente.json`"" $Destino
 New-UrlShortcut "Mi tiempo de pantalla" "http://127.0.0.1:8766/"
 
@@ -51,3 +52,4 @@ try {
     Write-Host "`nEl agente aun no responde. Revisa $Destino\agente.log" -ForegroundColor Yellow
 }
 Write-Host "IMPORTANTE: la cuenta de Windows del nino debe ser 'Usuario estandar' (no administrador)."
+Show-SecurityWarnings $Destino
