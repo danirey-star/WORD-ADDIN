@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tiempo de pantalla</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #677085; --line: #e3e6ec;
+    --accent: #3b6fd8; --danger: #c8443a; --ok: #2e8b57; --warn: #c98a12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171d; --card: #1d2129; --text: #e8ebf1; --muted: #9aa3b5; --line: #2e3440;
+            --accent: #6f9cf0; --danger: #e0675d; --ok: #4cc28a; --warn: #e3ae45; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  h1 { font-size: 22px; margin: 0; }
+  h2 { font-size: 17px; margin: 0 0 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .stat .v { font-size: 26px; font-weight: 650; }
+  .stat .l { color: var(--muted); font-size: 13px; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 13px; border: 1px solid var(--line); }
+  .pill.on { color: var(--ok); border-color: var(--ok); }
+  .pill.off { color: var(--muted); }
+  .pill.block { color: var(--danger); border-color: var(--danger); }
+  button, select, input { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); border-color: var(--danger); }
+  .tabs button.sel { background: var(--accent); color: #fff; border-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  td.num { text-align: right; white-space: nowrap; }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .bar { height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
+  #chart { width: 100%; overflow-x: auto; }
+  #chart svg { display: block; width: 100%; height: auto; min-width: 520px; }
+  #chart text { fill: var(--muted); font-size: 11px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 13px; }
+  .muted { color: var(--muted); }
+  .reasons { margin: 8px 0 0; padding-left: 18px; color: var(--danger); }
+  textarea { width: 100%; min-height: 150px; font: 13px/1.4 ui-monospace, Consolas, monospace; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+  .days label { margin-right: 6px; font-size: 13px; white-space: nowrap; }
+  .limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+  .limits input { width: 100%; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 8px; display: none; }
+  .parent-only { display: none; }
+  body.parent .parent-only { display: block; }
+  details summary { cursor: pointer; font-weight: 600; }
+  @media (max-width: 600px) { .hide-sm { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="title">Tiempo de pantalla</h1>
+    <div class="row">
+      <select id="device" aria-label="Ordenador"></select>
+      <span id="online" class="pill off">—</span>
+    </div>
+  </header>
+
+  <section class="card">
+    <div class="grid">
+      <div class="stat"><div class="v" id="s-games">—</div><div class="l">Juegos hoy</div></div>
+      <div class="stat"><div class="v" id="s-left">—</div><div class="l">Tiempo de juego restante hoy</div></div>
+      <div class="stat"><div class="v" id="s-pc">—</div><div class="l">Uso del ordenador hoy</div></div>
+      <div class="stat"><div class="v" id="s-now" style="font-size:18px">—</div><div class="l">Abierto ahora</div></div>
+    </div>
+    <ul class="reasons" id="reasons"></ul>
+  </section>
+
+  <section class="card">
+    <div class="row" style="justify-content: space-between; margin-bottom: 12px">
+      <div class="row tabs">
+        <button data-p="day">Día</button><button data-p="week">Semana</button><button data-p="month">Mes</button>
+      </div>
+      <div class="row">
+        <button id="prev" aria-label="Anterior">◀</button>
+        <strong id="ptitle" style="min-width: 150px; text-align: center"></strong>
+        <button id="next" aria-label="Siguiente">▶</button>
+        <button id="today">Hoy</button>
+      </div>
+    </div>
+    <div class="row" style="margin-bottom: 8px">
+      <label><input type="checkbox" id="only-games" checked> Solo juegos</label>
+    </div>
+    <div id="chart"></div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="card">
+    <h2>Resumen del periodo</h2>
+    <table>
+      <thead><tr><th>Programa</th><th class="hide-sm">Tipo</th><th class="num">Total</th><th class="num">Media/día</th><th style="width:30%" class="hide-sm"></th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </section>
+
+  <section class="card parent-only">
+    <h2>Bloquear ahora</h2>
+    <div class="row">
+      <label>Duración
+        <select id="b-min">
+          <option value="30">30 min</option><option value="60" selected>1 hora</option>
+          <option value="120">2 horas</option><option value="240">4 horas</option>
+          <option value="">Hasta que lo quite</option>
+        </select>
+      </label>
+      <button class="danger" data-block="internet">Bloquear internet</button>
+      <button class="danger" data-block="games">Bloquear juegos</button>
+      <input id="b-apps" placeholder="apps: discord.exe, chrome.exe" size="26">
+      <button class="danger" data-block="apps">Bloquear apps</button>
+    </div>
+    <table style="margin-top: 12px"><tbody id="manual"></tbody></table>
+    <div class="row" style="margin-top: 8px"><button id="unblock-all">Quitar todos los bloqueos manuales</button></div>
+    <p class="muted" style="margin-bottom:0">El PC del niño recoge los cambios en unos 30 segundos.</p>
+  </section>
+
+  <section class="card parent-only">
+    <h2>Franjas horarias</h2>
+    <table><thead><tr><th>Días</th><th>Desde</th><th>Hasta</th><th>Bloquear</th><th>Apps</th><th></th></tr></thead>
+      <tbody id="scheds"></tbody></table>
+    <div class="row" style="margin-top: 8px">
+      <button id="add-sched">+ Añadir franja</button>
+      <span class="muted">Si "hasta" es menor que "desde", la franja cruza la medianoche (p. ej. 22:00–07:00).</span>
+    </div>
+  </section>
+
+  <section class="card parent-only">
+    <h2>Límite diario de juego (minutos)</h2>
+    <div class="limits" id="limits"></div>
+    <p class="muted">Vacío = sin límite. Al llegar al límite se cierran los juegos (con aviso 5 min antes).</p>
+  </section>
+
+  <section class="card parent-only">
+    <details>
+      <summary>Juegos y apps reconocidos</summary>
+      <p class="muted">Una línea por programa: <code>Nombre = ejecutable1.exe, ejecutable2.exe</code>. Los juegos instalados con Steam, Epic, Riot, Xbox, EA, Ubisoft o GOG se detectan solos. Para ver el nombre del ejecutable: Administrador de tareas → Detalles.</p>
+      <div class="grid">
+        <div><strong>Juegos</strong><textarea id="games"></textarea></div>
+        <div><strong>Otras apps</strong><textarea id="apps"></textarea></div>
+        <div><strong>Ignorar (lanzadores…)</strong><textarea id="ignore"></textarea></div>
+      </div>
+      <label><input type="checkbox" id="autodetect"> Detectar juegos automáticamente por carpeta</label>
+    </details>
+  </section>
+
+  <div class="row parent-only" style="margin-bottom: 24px">
+    <button class="primary" id="save">Guardar horarios, límites y programas</button>
+  </div>
+</main>
+<div id="toast"></div>
+
+<script>
+const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
+const DAY_ES = ["L","M","X","J","V","S","D"];
+const DAY_LONG = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+const TYPE_ES = { internet: "Internet", games: "Juegos", apps: "Apps" };
+const CAT_ES = { game: "Juego", app: "App", pc: "Total PC" };
+const PALETTE = ["#3b6fd8","#e07b39","#2e9e6e","#c8443a","#8a5cc7","#c9a227","#2a9bb5","#d1608f","#6b7f2d","#7a6455"];
+const st = { readonly: true, device: null, period: "day", date: todayStr(), config: null, colors: {} };
+
+function todayStr(d = new Date()) {
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+function fmt(sec) {
+  sec = Math.round(sec || 0);
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+  if (h && m === 60) return `${h+1} h`;
+  return h ? `${h} h ${m ? m + " min" : ""}`.trim() : `${m} min`;
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.style.display = "block"; setTimeout(() => t.style.display = "none", 2500); }
+async function api(path, opts = {}) {
+  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const q = () => `device=${encodeURIComponent(st.device)}`;
+function color(name) {
+  if (!st.colors[name]) st.colors[name] = PALETTE[Object.keys(st.colors).length % PALETTE.length];
+  return st.colors[name];
+}
+
+async function loadDevices() {
+  const devs = await api("/api/devices");
+  const sel = document.getElementById("device");
+  if (!st.device && devs.length) st.device = devs[0].device;
+  sel.innerHTML = devs.map(d => `<option ${d.device === st.device ? "selected" : ""}>${esc(d.device)}</option>`).join("");
+  sel.style.display = st.readonly ? "none" : "";
+  const d = devs.find(x => x.device === st.device);
+  const on = document.getElementById("online");
+  if (!d) { on.textContent = "Aún no hay datos de ningún PC"; return; }
+  on.className = "pill " + (d.online ? "on" : "off");
+  on.textContent = st.readonly ? (d.status.server_ok ? "Conectado con papá/mamá" : "Sin conexión con el otro PC")
+                               : (d.online ? "En línea" : "Desconectado · visto " + (d.last_seen || "nunca").replace("T", " "));
+  const s = d.status || {}, b = s.blocks || {};
+  document.getElementById("s-games").textContent = s.game_seconds_today != null ? fmt(s.game_seconds_today) : "—";
+  document.getElementById("s-left").textContent = b.game_minutes_left == null ? "Sin límite" : fmt(b.game_minutes_left * 60);
+  document.getElementById("s-now").textContent = !d.online ? "—" : (s.running && s.running.length ? s.running.join(", ") : (s.session_active ? "Nada" : "Nadie conectado"));
+  document.getElementById("reasons").innerHTML = (b.reasons || []).map(r => `<li>${esc(r)}</li>`).join("");
+}
+
+async function loadUsage() {
+  if (!st.device) return;
+  const u = await api(`/api/usage?${q()}&period=${st.period}&date=${st.date}`);
+  document.getElementById("ptitle").textContent = u.title;
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("sel", b.dataset.p === st.period));
+  const today = (st.period === "day" && st.date === todayStr()) ? u : await api(`/api/usage?${q()}&period=day&date=${todayStr()}`);
+  document.getElementById("s-pc").textContent = fmt(today.pc_total);
+  const onlyGames = document.getElementById("only-games").checked;
+  const series = u.series.filter(s => onlyGames ? s.category === "game" : s.category !== "pc");
+  drawChart(u.labels, series);
+  const max = Math.max(1, ...u.series.map(s => s.total));
+  const rows = u.series.map(s => `<tr>
+      <td><span class="sw" style="background:${s.category === "pc" ? "var(--muted)" : color(s.name)}"></span>${esc(s.name)}</td>
+      <td class="hide-sm muted">${CAT_ES[s.category] || s.category}</td>
+      <td class="num"><strong>${fmt(s.total)}</strong></td>
+      <td class="num">${u.days > 1 ? fmt(s.avg_per_day) : "—"}</td>
+      <td class="hide-sm"><div class="bar" style="width:${100 * s.total / max}%;background:${s.category === "pc" ? "var(--muted)" : color(s.name)}"></div></td></tr>`);
+  document.getElementById("tbody").innerHTML = rows.join("") || `<tr><td colspan="5" class="muted">Sin datos en este periodo.</td></tr>`;
+}
+
+function drawChart(labels, series) {
+  const W = 900, H = 280, L = 44, B = 26, T = 10, n = labels.length;
+  const totals = labels.map((_, i) => series.reduce((a, s) => a + s.seconds[i], 0));
+  const maxSec = Math.max(...totals, 1);
+  const unitH = maxSec <= 3600 ? 60 : 3600; // minutos u horas
+  const unit = unitH === 60 ? "min" : "h";
+  const maxU = maxSec / unitH;
+  const step = [1, 2, 5, 10, 15, 20, 30, 60].find(s => maxU / s <= 5) || Math.ceil(maxU / 5);
+  const top = Math.max(step, Math.ceil(maxU / step) * step);
+  const y = v => T + (H - T - B) * (1 - v / (top * unitH));
+  const bw = (W - L) / n;
+  let g = "";
+  for (let v = 0; v <= top; v += step) {
+    g += `<line x1="${L}" x2="${W}" y1="${y(v * unitH)}" y2="${y(v * unitH)}" stroke="currentColor" opacity=".12"/>`;
+    g += `<text x="${L - 6}" y="${y(v * unitH) + 4}" text-anchor="end">${v} ${unit}</text>`;
+  }
+  labels.forEach((lab, i) => {
+    let acc = 0;
+    const x = L + i * bw + bw * 0.15, w = bw * 0.7;
+    series.forEach(s => {
+      const v = s.seconds[i]; if (!v) return;
+      const y1 = y(acc + v), y0 = y(acc); acc += v;
+      g += `<rect x="${x}" y="${y1}" width="${w}" height="${Math.max(0.5, y0 - y1)}" fill="${color(s.name)}" rx="2"><title>${esc(s.name)}: ${fmt(v)}</title></rect>`;
+    });
+    const showLab = n <= 14 || i % Math.ceil(n / 14) === 0;
+    if (showLab) g += `<text x="${L + i * bw + bw / 2}" y="${H - 8}" text-anchor="middle">${esc(lab)}</text>`;
+  });
+  document.getElementById("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Uso por periodo" style="color:var(--text)">${g}</svg>`;
+  document.getElementById("legend").innerHTML = series.map(s => `<span><span class="sw" style="background:${color(s.name)}"></span>${esc(s.name)} · ${fmt(s.total)}</span>`).join("");
+}
+
+function shiftDate(dir) {
+  const d = new Date(st.date + "T12:00:00");
+  if (st.period === "day") d.setDate(d.getDate() + dir);
+  else if (st.period === "week") d.setDate(d.getDate() + 7 * dir);
+  else { d.setDate(1); d.setMonth(d.getMonth() + dir); }
+  st.date = todayStr(d); loadUsage();
+}
+
+// ---------------- panel de padres ----------------
+function mapToText(m) { return Object.entries(m || {}).map(([k, v]) => `${k} = ${v.join(", ")}`).join("\n"); }
+function textToMap(t) {
+  const out = {};
+  t.split("\n").map(l => l.trim()).filter(Boolean).forEach(l => {
+    const i = l.indexOf("="); if (i < 0) return;
+    const name = l.slice(0, i).trim(), exes = l.slice(i + 1).split(",").map(s => s.trim()).filter(Boolean);
+    if (name && exes.length) out[name] = exes;
+  });
+  return out;
+}
+function schedRow(s = { days: DAYS.slice(0, 5), start: "22:00", end: "07:00", type: "internet", apps: [] }) {
+  const tr = document.createElement("tr");
+  tr.innerHTML = `<td class="days">${DAYS.map((d, i) => `<label><input type="checkbox" value="${d}" ${(s.days || DAYS).includes(d) ? "checked" : ""}>${DAY_ES[i]}</label>`).join("")}</td>
+    <td><input type="time" class="start" value="${s.start}"></td><td><input type="time" class="end" value="${s.end}"></td>
+    <td><select class="type">${Object.entries(TYPE_ES).map(([k, v]) => `<option value="${k}" ${k === s.type ? "selected" : ""}>${v}</option>`).join("")}</select></td>
+    <td><input class="apps" size="16" placeholder="solo para Apps" value="${esc((s.apps || []).join(", "))}"></td>
+    <td><button class="danger" title="Eliminar">✕</button></td>`;
+  tr.querySelector("button").onclick = () => tr.remove();
+  document.getElementById("scheds").appendChild(tr);
+}
+function renderConfig(c) {
+  st.config = c;
+  document.getElementById("scheds").innerHTML = "";
+  (c.schedules || []).forEach(schedRow);
+  document.getElementById("limits").innerHTML = DAYS.map((d, i) => `<label>${DAY_LONG[i]}<input type="number" min="0" step="15" data-day="${d}" value="${c.daily_game_limit_min[d] ?? ""}"></label>`).join("");
+  document.getElementById("games").value = mapToText(c.games);
+  document.getElementById("apps").value = mapToText(c.apps);
+  document.getElementById("ignore").value = (c.ignore || []).join("\n");
+  document.getElementById("autodetect").checked = !!c.auto_detect_games;
+  renderManual(c.manual_blocks || []);
+}
+function renderManual(list) {
+  document.getElementById("manual").innerHTML = list.length ? list.map(b => `<tr><td><span class="pill block">${TYPE_ES[b.type]}${b.apps ? ": " + esc(b.apps.join(", ")) : ""}</span></td>
+     <td>${b.until ? "hasta " + b.until.replace("T", " ") : "hasta que lo quites"}</td>
+     <td class="num"><button data-unblock="${b.type}">Quitar</button></td></tr>`).join("")
+    : `<tr><td class="muted">No hay bloqueos manuales activos.</td></tr>`;
+  document.querySelectorAll("[data-unblock]").forEach(b => b.onclick = () => unblock(b.dataset.unblock));
+}
+async function loadConfig() { renderConfig(await api(`/api/config?${q()}`)); }
+async function block(type) {
+  const minutes = document.getElementById("b-min").value || null;
+  const apps = document.getElementById("b-apps").value.split(",");
+  try { const c = await api(`/api/block?${q()}`, { method: "POST", body: JSON.stringify({ type, minutes, apps }) }); renderManual(c.manual_blocks); toast("Bloqueo enviado"); }
+  catch (e) { toast(e.message); }
+}
+async function unblock(type) {
+  const c = await api(`/api/unblock?${q()}`, { method: "POST", body: JSON.stringify({ type }) });
+  renderManual(c.manual_blocks); toast("Bloqueo quitado");
+}
+async function save() {
+  const c = { ...st.config };
+  c.schedules = [...document.querySelectorAll("#scheds tr")].map(tr => ({
+    days: [...tr.querySelectorAll(".days input:checked")].map(i => i.value),
+    start: tr.querySelector(".start").value, end: tr.querySelector(".end").value,
+    type: tr.querySelector(".type").value,
+    apps: tr.querySelector(".apps").value.split(",").map(s => s.trim()).filter(Boolean), enabled: true }));
+  c.daily_game_limit_min = {};
+  document.querySelectorAll("#limits input").forEach(i => c.daily_game_limit_min[i.dataset.day] = i.value === "" ? null : Number(i.value));
+  c.games = textToMap(document.getElementById("games").value);
+  c.apps = textToMap(document.getElementById("apps").value);
+  c.ignore = document.getElementById("ignore").value.split("\n").map(s => s.trim()).filter(Boolean);
+  c.auto_detect_games = document.getElementById("autodetect").checked;
+  delete c.manual_blocks; // los gestiona el servidor; se conservan los actuales
+  try {
+    const cur = await api(`/api/config?${q()}`);
+    c.manual_blocks = cur.manual_blocks;
+    renderConfig(await api(`/api/config?${q()}`, { method: "PUT", body: JSON.stringify(c) }));
+    toast("Guardado");
+  } catch (e) { toast("Error: " + e.message); }
+}
+
+async function refresh() { try { await loadDevices(); await loadUsage(); } catch (e) { console.error(e); } }
+
+(async function init() {
+  const mode = await api("/api/mode");
+  st.readonly = mode.readonly;
+  document.body.classList.toggle("parent", !st.readonly);
+  document.getElementById("title").textContent = st.readonly ? "Mi tiempo de pantalla" : "Control parental";
+  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { st.period = b.dataset.p; loadUsage(); });
+  document.getElementById("prev").onclick = () => shiftDate(-1);
+  document.getElementById("next").onclick = () => shiftDate(1);
+  document.getElementById("today").onclick = () => { st.date = todayStr(); loadUsage(); };
+  document.getElementById("only-games").onchange = loadUsage;
+  document.getElementById("device").onchange = e => { st.device = e.target.value; st.colors = {}; refresh(); if (!st.readonly) loadConfig(); };
+  document.querySelectorAll("[data-block]").forEach(b => b.onclick = () => block(b.dataset.block));
+  document.getElementById("unblock-all").onclick = () => unblock(null);
+  document.getElementById("add-sched").onclick = () => schedRow();
+  document.getElementById("save").onclick = save;
+  await refresh();
+  if (!st.readonly && st.device) await loadConfig();
+  setInterval(refresh, 30000);
+})();
+</script>
+</body>
+</html>

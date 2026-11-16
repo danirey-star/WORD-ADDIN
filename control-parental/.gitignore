@@ -1,0 +1,6 @@
+__pycache__/
+*.db
+*.log
+servidor.json
+agente.json
+config_cache.json
