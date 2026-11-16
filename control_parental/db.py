@@ -117,6 +117,14 @@ class Store:
                 "AND minute<? AND category=?", (device, start, end, category)).fetchone()
         return float(r[0])
 
+    def seconds_by_name_on(self, device: str, day: date) -> dict[str, float]:
+        nxt = day + timedelta(days=1)
+        with self.lock:
+            cur = self.conn.execute(
+                "SELECT name, SUM(seconds) FROM usage WHERE device=? AND minute>=? AND minute<? "
+                "GROUP BY name", (device, day.isoformat(), nxt.isoformat()))
+            return {n: float(s) for n, s in cur}
+
     def game_seconds_on(self, device: str, day: date) -> float:
         nxt = day + timedelta(days=1)
         return self.seconds_between(device, day.isoformat(), nxt.isoformat(), "game")

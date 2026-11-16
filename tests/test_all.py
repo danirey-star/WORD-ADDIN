@@ -95,6 +95,11 @@ def test_end_to_end(tmp_path):
     agent.last_tick -= 5
     agent.tick()
     assert set(agent.status["running"]) == {"Roblox", "Discord"}
+    first = agent.status["now"][0]  # los juegos van primero
+    assert first["name"] == "Roblox" and first["category"] == "game" and first["seconds_today"] == 5
+    since = first["since"]
+    agent.tick()
+    assert agent.status["now"][0]["since"] == since  # sigue abierto: no se reinicia
     agent.sync()
     assert agent.server_ok
 

@@ -31,11 +31,15 @@ o **apps concretas** al momento o por franjas horarias, además de poner un
 Requisitos: Windows 10/11 en ambos PCs, en la misma red. Python 3.10+ (el
 instalador lo instala con `winget` si falta).
 
-1. **PC del padre**: descarga esta carpeta, doble clic en
-   `Instalar-Servidor.bat` y acepta el permiso de administrador. Al final
-   muestra la **IP** del PC y un **token**. Apúntalos.
-2. **PC del niño**: copia la carpeta, doble clic en `Instalar-Agente.bat`
-   (como administrador), e introduce la IP y el token.
+Hay un único instalador, `Instalar.bat`, que sirve para los dos PCs. Al abrirlo
+(pide permiso de administrador) pregunta qué quieres hacer en ese ordenador:
+instalar el **control**, instalar el **agente** o **desinstalar**.
+
+1. **PC del padre**: descarga esta carpeta, doble clic en `Instalar.bat` y
+   elige **1 (Control)**. Al final muestra la **IP** del PC y un **token**.
+   Apúntalos.
+2. **PC del niño**: copia la misma carpeta, doble clic en `Instalar.bat`, elige
+   **2 (Agente)** e introduce la IP y el token.
 3. Abre en tu PC el acceso directo **"Control parental"** del escritorio
    (o http://127.0.0.1:8765). En menos de un minuto aparece el PC del niño.
 
@@ -47,7 +51,12 @@ Si su cuenta es de administrador puede desactivarlo todo.
 Consejo: reserva en el router una IP fija para tu PC (reserva DHCP); si
 cambia, vuelve a ejecutar el instalador del agente con la nueva IP.
 
-Para desinstalar del PC del niño: `Desinstalar-Agente.bat`.
+Para desinstalar: `Instalar.bat` → **3 (Desinstalar)** en el PC que quieras. En
+el PC del padre pregunta si quieres conservar el histórico.
+
+Sin menú (para automatizar), desde una consola de administrador:
+`powershell -ExecutionPolicy Bypass -File instalar.ps1 -Modo agente -Servidor 192.168.1.50 -Token XXXX`
+(`-Modo control` y `-Modo desinstalar` funcionan igual).
 
 ## Qué se mide
 
@@ -85,6 +94,22 @@ Limitaciones a conocer:
   caso el bloqueo funciona igual pero sin aviso previo.
 - El panel del padre solo se abre desde el propio PC del padre.
 
+## Antivirus y firewall
+
+- **Microsoft Defender**: los instaladores excluyen del análisis la carpeta del
+  programa, para que no lo ralentice ni lo ponga en cuarentena. Como la carpeta
+  solo la pueden modificar administradores, la exclusión no abre una puerta a
+  otros programas.
+- **Antivirus de otra marca** (Avast, Kaspersky, ESET…): el instalador lo
+  detecta y te avisa; añade a mano la carpeta a sus exclusiones.
+- **Firewall de otra marca**: si sustituye al Firewall de Windows, el bloqueo
+  de internet puede no funcionar y tendrás que permitir el puerto 8765 en el PC
+  del padre. Los bloqueos de juegos y apps no dependen del firewall.
+- El agente solo cierra programas de la sesión del niño que estén en tus
+  listas; nunca toca servicios del sistema ni del antivirus. Con internet
+  bloqueado el antivirus sigue protegiendo, pero no se actualiza hasta que
+  termina el bloqueo.
+
 ## Archivos
 
 ```
@@ -96,7 +121,7 @@ control_parental/
   server.py     API del PC del padre
   web/dashboard.html  panel (sin dependencias externas: funciona sin internet)
 run_agent.py / run_server.py   puntos de entrada
-instalacion/*.ps1              instaladores (tarea programada como SYSTEM al arrancar)
+Instalar.bat / instalar.ps1    instalador único (tarea programada como SYSTEM al arrancar)
 tests/                         pruebas (pytest)
 ```
 

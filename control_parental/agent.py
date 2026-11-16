@@ -39,6 +39,7 @@ class Agent:
         self.last_tick = time.monotonic()
         self.last_sync = 0.0
         self.warned: set[str] = set()
+        self.running_since: dict[str, datetime] = {}  # nombre -> desde cuándo está abierto
         self.status: dict = {}
         self.server_ok = False
 
@@ -94,6 +95,19 @@ class Agent:
             items = [(PC_NAME, "pc")] + list(running.items())
             self.store.add_seconds(self.device, now.strftime("%Y-%m-%dT%H:%M"), items, elapsed)
 
+        # Desde cuándo lleva abierto cada programa (se reinicia al cerrarlo o bloquear la sesión).
+        if not active:
+            self.running_since.clear()
+        else:
+            self.running_since = {n: self.running_since.get(n, now) for n in running}
+        today = self.store.seconds_by_name_on(self.device, now.date())
+        now_list = [{"name": n, "category": c,
+                     "since": self.running_since[n].isoformat(timespec="minutes"),
+                     "open_seconds": round((now - self.running_since[n]).total_seconds()),
+                     "seconds_today": round(today.get(n, 0))}
+                    for n, c in sorted(running.items(), key=lambda x: (x[1] != "game", x[0]))
+                    ] if active else []
+
         game_secs = self.store.game_seconds_on(self.device, now.date())
         state = evaluate(self.config, now, game_secs)
 
@@ -128,6 +142,7 @@ class Agent:
             "session_active": active,
             "user": sess.user,
             "running": sorted(n for n, c in running.items()),
+            "now": now_list,
             "game_seconds_today": round(game_secs),
             "blocks": state.to_dict(),
             "server_ok": self.server_ok,
