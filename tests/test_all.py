@@ -106,7 +106,7 @@ def test_end_to_end(tmp_path):
     devs = _req(base + "/api/devices")
     assert devs[0]["device"] == "PC-Hijo" and devs[0]["online"]
     u = _req(base + f"/api/usage?device=PC-Hijo&period=day&date={date.today()}")
-    assert {s["name"] for s in u["series"]} == {"Roblox", "Discord", PC_NAME}
+    assert {s["name"] for s in u["series"]} == {"Roblox", PC_NAME}  # Discord detrás no suma
 
     # El padre bloquea juegos e internet desde el panel
     _req(base + "/api/block?device=PC-Hijo", {"type": "games", "minutes": 30}, "POST")
@@ -329,7 +329,8 @@ def test_alarm_history_closed(tmp_path):
 
 def test_overlap_counts_once(tmp_path):
     fake = FakePlatform()
-    fake.procs = [Proc(1, "chrome.exe", None, 1), Proc(2, "FortniteClient-Win64-Shipping.exe", None, 1)]
+    fake.procs = [Proc(1, "chrome.exe", None, 1), Proc(2, "FortniteClient-Win64-Shipping.exe", None, 1),
+                  Proc(3, "WhatsApp.exe", None, 1)]
     agent = Agent({"device": "d"}, tmp_path, platform=fake)
     api = __import__("control_parental.agent", fromlist=["LocalApi"]).LocalApi(agent)
     # YouTube delante con el juego abierto detrás: solo cuenta como redes
@@ -342,3 +343,6 @@ def test_overlap_counts_once(tmp_path):
     agent.last_tick -= 5
     agent.tick()
     assert agent.status["social_seconds_today"] == 5 and agent.status["game_seconds_today"] == 5
+    # WhatsApp abierto detrás todo el rato: no suma nada
+    used = agent.store.seconds_by_name_on("d", date.today())
+    assert "WhatsApp" not in used and used[PC_NAME] == 10
