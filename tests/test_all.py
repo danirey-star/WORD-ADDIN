@@ -325,3 +325,20 @@ def test_alarm_history_closed(tmp_path):
     h = agent.status["alarm_history"][0]
     assert h["closed"] and any("7 min después de tu alarma" in m for m in fake.messages)
     assert Agent({"device": "d"}, tmp_path, platform=fake).history[0]["closed"] == h["closed"]  # se guarda
+
+
+def test_overlap_counts_once(tmp_path):
+    fake = FakePlatform()
+    fake.procs = [Proc(1, "chrome.exe", None, 1), Proc(2, "FortniteClient-Win64-Shipping.exe", None, 1)]
+    agent = Agent({"device": "d"}, tmp_path, platform=fake)
+    api = __import__("control_parental.agent", fromlist=["LocalApi"]).LocalApi(agent)
+    # YouTube delante con el juego abierto detrás: solo cuenta como redes
+    api.handle("POST", "/api/foreground", {}, {"exe": "chrome.exe", "title": "Gatos - YouTube - Google Chrome", "idle": 1}, None)
+    agent.last_tick -= 5
+    agent.tick()
+    assert agent.status["social_seconds_today"] == 5 and agent.status["game_seconds_today"] == 0
+    # Vuelve al juego: solo cuenta como juego
+    api.handle("POST", "/api/foreground", {}, {"exe": "FortniteClient-Win64-Shipping.exe", "title": "Fortnite", "idle": 1}, None)
+    agent.last_tick -= 5
+    agent.tick()
+    assert agent.status["social_seconds_today"] == 5 and agent.status["game_seconds_today"] == 5

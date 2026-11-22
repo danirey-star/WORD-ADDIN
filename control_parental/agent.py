@@ -134,7 +134,18 @@ class Agent:
         in_use = active and (fg is None or fg["idle"] < IDLE_SECONDS or bool(game_procs) or bool(social))
 
         if in_use and elapsed > 0:
-            items = [(PC_NAME, "pc")] + list(running.items())
+            # Cada momento cuenta una sola vez: redes delante > el juego delante (o uno de los
+            # abiertos) > resto. Así juegos + redes + resto = uso real del ordenador.
+            games = sorted(n for n, c in running.items() if c == "game")
+            fg_game = self.classifier.classify(fg["exe"], None) if fg else None
+            if social:
+                counted = {social}
+            elif games:
+                counted = {fg_game[0] if fg_game and fg_game[0] in games else games[0]}
+            else:
+                counted = set()
+            items = [(PC_NAME, "pc")] + [(n, c) for n, c in running.items()
+                                         if n in counted or c not in ("game", "social")]
             self.store.add_seconds(self.device, now.strftime("%Y-%m-%dT%H:%M"), items, elapsed)
 
         # Desde cuándo lleva abierto cada programa (se reinicia al cerrarlo o bloquear la sesión).
