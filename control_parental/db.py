@@ -1,4 +1,4 @@
-"""Almacenamiento SQLite compartido por el agente (PC del niño) y el servidor
+"""Almacenamiento SQLite compartido por el agente (PC del hijo) y el servidor
 (PC del padre). Guarda segundos de uso por minuto, por programa."""
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ from .rules import PC_NAME
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS usage (
     device   TEXT NOT NULL,
-    minute   TEXT NOT NULL,          -- 'YYYY-MM-DDTHH:MM' hora local del PC del niño
+    minute   TEXT NOT NULL,          -- 'YYYY-MM-DDTHH:MM' hora local del PC del hijo
     name     TEXT NOT NULL,
-    category TEXT NOT NULL,          -- 'game' | 'app' | 'pc'
+    category TEXT NOT NULL,          -- 'game' | 'social' | 'app' | 'pc'
     seconds  REAL NOT NULL,
     dirty    INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (device, minute, name)
@@ -125,9 +125,12 @@ class Store:
                 "GROUP BY name", (device, day.isoformat(), nxt.isoformat()))
             return {n: float(s) for n, s in cur}
 
-    def game_seconds_on(self, device: str, day: date) -> float:
+    def category_seconds_on(self, device: str, day: date, category: str) -> float:
         nxt = day + timedelta(days=1)
-        return self.seconds_between(device, day.isoformat(), nxt.isoformat(), "game")
+        return self.seconds_between(device, day.isoformat(), nxt.isoformat(), category)
+
+    def game_seconds_on(self, device: str, day: date) -> float:
+        return self.category_seconds_on(device, day, "game")
 
     def usage_report(self, device: str, period: str, ref: date) -> dict:
         """Datos para las gráficas: period = 'day' (por horas), 'week' o 'month' (por días)."""
@@ -169,6 +172,27 @@ class Store:
             cats[name] = cat
         totals = {n: sum(v) for n, v in series.items()}
         n_days = (end - start).days
+        # Uso general por tramo: juegos, redes/vídeo y el resto del tiempo con el ordenador.
+        # Se recorta para que nunca sumen más que el uso del ordenador (puede haber dos
+        # juegos abiertos a la vez, o un vídeo con un juego abierto detrás).
+        with self.lock:
+            per_min = self.conn.execute(
+                "SELECT minute, SUM(CASE WHEN category='pc' THEN seconds ELSE 0 END), "
+                "SUM(CASE WHEN category='game' THEN seconds ELSE 0 END), "
+                "SUM(CASE WHEN category='social' THEN seconds ELSE 0 END) "
+                "FROM usage WHERE device=? AND minute>=? AND minute<? GROUP BY minute",
+                (device, start.isoformat(), end.isoformat())).fetchall()
+        ov = {k: [0.0] * len(keys) for k in ("game", "social", "other")}
+        for minute, pc, g, s in per_min:
+            i = idx.get(minute[:key_len])
+            if i is None:
+                continue
+            total = min(60.0, max(pc, g, s))
+            g = min(g, total)
+            s = min(s, total - g)
+            ov["game"][i] += g
+            ov["social"][i] += s
+            ov["other"][i] += total - g - s
         return {
             "period": period, "title": title, "start": start.isoformat(),
             "labels": labels,
@@ -177,5 +201,7 @@ class Store:
                        for n in sorted(series, key=lambda x: -totals[x])],
             "pc_total": totals.get(PC_NAME, 0.0),
             "games_total": sum(t for n, t in totals.items() if cats[n] == "game"),
+            "social_total": sum(t for n, t in totals.items() if cats[n] == "social"),
+            "overview": ov,
             "days": n_days,
         }
