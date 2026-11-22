@@ -33,7 +33,18 @@
   button:hover { border-color: var(--accent); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger { color: var(--danger); border-color: var(--danger); }
-  .tabs button.sel { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .head { justify-content: space-between; margin-bottom: 4px; }
+  .head h2 { margin: 0; }
+  .ptitle { min-width: 150px; text-align: center; }
+  .sum { margin: 6px 0 10px; }
+  .sum b { font-size: 18px; }
+  .progs { margin-top: 14px; }
+  .progs h3 { font-size: 14px; margin: 0 0 6px; }
+  .progs ul { list-style: none; margin: 0; padding: 0; }
+  .progs li { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--line); }
+  .note { font-size: 13px; margin: 12px 0 0; }
+  .pick g { cursor: pointer; }
+  .bar-sel { stroke: var(--text); stroke-width: 1.5; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
   th { color: var(--muted); font-weight: 500; font-size: 13px; }
@@ -89,36 +100,36 @@
   </section>
 
   <section class="card">
-    <div class="row" style="justify-content: space-between; margin-bottom: 12px">
-      <div class="row tabs">
-        <button data-p="day">Día</button><button data-p="week">Semana</button><button data-p="month">Mes</button>
-      </div>
+    <div class="row head">
+      <h2>Día por horas</h2>
       <div class="row">
-        <button id="prev" aria-label="Anterior">◀</button>
-        <strong id="ptitle" style="min-width: 150px; text-align: center"></strong>
-        <button id="next" aria-label="Siguiente">▶</button>
-        <button id="today">Hoy</button>
+        <button id="d-prev" aria-label="Día anterior">◀</button>
+        <strong id="d-title" class="ptitle"></strong>
+        <button id="d-next" aria-label="Día siguiente">▶</button>
+        <button id="d-today">Hoy</button>
       </div>
     </div>
-    <h2>Uso general</h2>
-    <div id="chart-ov" class="chart"></div>
-    <div class="legend" id="legend-ov"></div>
-    <div class="row" style="margin: 20px 0 8px; justify-content: space-between">
-      <h2 style="margin: 0">Por programa</h2>
-      <select id="detail" aria-label="Qué mostrar">
-        <option value="game">Juegos</option><option value="social">Redes y vídeo</option><option value="all">Todo</option>
-      </select>
-    </div>
-    <div id="chart" class="chart"></div>
-    <div class="legend" id="legend"></div>
+    <p class="sum" id="d-sum"></p>
+    <div id="chart-day" class="chart"></div>
+    <div class="legend" id="legend-day"></div>
+    <div class="grid progs" id="d-progs"></div>
   </section>
 
   <section class="card">
-    <h2>Resumen del periodo</h2>
-    <table>
-      <thead><tr><th>Programa</th><th class="hide-sm">Tipo</th><th class="num">Total</th><th class="num">Media/día</th><th style="width:30%" class="hide-sm"></th></tr></thead>
-      <tbody id="tbody"></tbody>
-    </table>
+    <div class="row head">
+      <h2>Semana por días</h2>
+      <div class="row">
+        <button id="w-prev" aria-label="Semana anterior">◀</button>
+        <strong id="w-title" class="ptitle"></strong>
+        <button id="w-next" aria-label="Semana siguiente">▶</button>
+        <button id="w-today">Esta semana</button>
+      </div>
+    </div>
+    <p class="sum" id="w-sum"></p>
+    <div id="chart-week" class="chart pick"></div>
+    <div class="legend" id="legend-week"></div>
+    <div class="grid progs" id="w-progs"></div>
+    <p class="muted note">Cada momento cuenta una sola vez (lo que tiene delante), así que la altura de cada barra es tiempo real con el ordenador. Pulsa un día de la semana para verlo arriba por horas.</p>
   </section>
 
   <section class="card kid-only">
@@ -215,7 +226,7 @@ const TYPE_ES = { internet: "Internet", games: "Juegos", social: "Redes y vídeo
 const CAT_ES = { game: "Juego", social: "Redes/vídeo", app: "App", pc: "Total PC" };
 const OVERVIEW = [["game", "Juegos", "#3b6fd8"], ["social", "Redes y vídeo", "#e07b39"], ["other", "Resto del ordenador", "#9aa3b5"]];
 const PALETTE = ["#3b6fd8","#e07b39","#2e9e6e","#c8443a","#8a5cc7","#c9a227","#2a9bb5","#d1608f","#6b7f2d","#7a6455"];
-const st = { readonly: true, device: null, period: "day", date: todayStr(), config: null, colors: {} };
+const st = { readonly: true, device: null, day: todayStr(), week: todayStr(), config: null, colors: {} };
 
 function todayStr(d = new Date()) {
   const p = n => String(n).padStart(2, "0");
@@ -273,29 +284,64 @@ async function loadDevices() {
   document.getElementById("reasons").innerHTML = (b.reasons || []).map(r => `<li>${esc(r)}</li>`).join("");
 }
 
+const CAT_GROUPS = [["game", "Juegos"], ["social", "Redes y vídeo"], ["app", "Otras apps"]];
+const sumArr = a => a.reduce((x, y) => x + y, 0);
+const ovSeries = u => OVERVIEW.map(([k, name, c]) => ({ name, color: c, seconds: u.overview[k], total: sumArr(u.overview[k]) }));
+const ovTotal = u => OVERVIEW.reduce((a, [k]) => a + sumArr(u.overview[k]), 0);
+const splitText = u => OVERVIEW.map(([k, name]) => `${name.toLowerCase()} ${fmt(sumArr(u.overview[k]))}`).join(" · ");
+const dayOf = (w, i) => todayStr(new Date(new Date(w.start + "T12:00:00").getTime() + i * 864e5));
+function hourRanges(u) {
+  // Tramos de horas seguidas con uso, p. ej. "00–03 h, 13–20 h"
+  const used = u.labels.map((_, i) => OVERVIEW.some(([k]) => u.overview[k][i] > 30));
+  const out = []; let from = null;
+  used.concat([false]).forEach((on, h) => {
+    if (on && from === null) from = h;
+    if (!on && from !== null) { out.push(`${String(from).padStart(2, "0")}–${String(h).padStart(2, "0")} h`); from = null; }
+  });
+  return out.join(", ");
+}
+function progLists(u, perDay) {
+  return CAT_GROUPS.map(([cat, title]) => {
+    const items = u.series.filter(x => x.category === cat && x.total >= 60).slice(0, 6);
+    return `<div><h3>${title}</h3>` + (items.length
+      ? `<ul>${items.map(x => `<li><span>${esc(x.name)}</span>
+          <span><b>${fmt(x.total)}</b>${perDay ? ` <span class="muted">· ${fmt(x.avg_per_day)}/día</span>` : ""}</span></li>`).join("")}</ul>`
+      : `<span class="muted">Nada</span>`) + `</div>`;
+  }).join("");
+}
 async function loadUsage() {
   if (!st.device) return;
-  const u = await api(`/api/usage?${q()}&period=${st.period}&date=${st.date}`);
-  document.getElementById("ptitle").textContent = u.title;
-  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("sel", b.dataset.p === st.period));
-  const today = (st.period === "day" && st.date === todayStr()) ? u : await api(`/api/usage?${q()}&period=day&date=${todayStr()}`);
-  document.getElementById("s-pc").textContent = fmt(today.pc_total);
-  const ov = OVERVIEW.map(([k, name, c]) => ({ name, color: c, seconds: u.overview[k], total: u.overview[k].reduce((a, b) => a + b, 0) }));
-  drawChart("chart-ov", "legend-ov", u.labels, ov, `Total · ${fmt(u.pc_total)}`);
-  const det = document.getElementById("detail").value;
-  const series = u.series.filter(s => det === "all" ? s.category !== "pc" : s.category === det);
-  drawChart("chart", "legend", u.labels, series);
-  const max = Math.max(1, ...u.series.map(s => s.total));
-  const rows = u.series.map(s => `<tr>
-      <td><span class="sw" style="background:${s.category === "pc" ? "var(--muted)" : color(s.name)}"></span>${esc(s.name)}</td>
-      <td class="hide-sm muted">${CAT_ES[s.category] || s.category}</td>
-      <td class="num"><strong>${fmt(s.total)}</strong></td>
-      <td class="num">${u.days > 1 ? fmt(s.avg_per_day) : "—"}</td>
-      <td class="hide-sm"><div class="bar" style="width:${100 * s.total / max}%;background:${s.category === "pc" ? "var(--muted)" : color(s.name)}"></div></td></tr>`);
-  document.getElementById("tbody").innerHTML = rows.join("") || `<tr><td colspan="5" class="muted">Sin datos en este periodo.</td></tr>`;
+  const [d, w] = await Promise.all([
+    api(`/api/usage?${q()}&period=day&date=${st.day}`),
+    api(`/api/usage?${q()}&period=week&date=${st.week}`)]);
+  const today = st.day === todayStr() ? d : await api(`/api/usage?${q()}&period=day&date=${todayStr()}`);
+  document.getElementById("s-pc").textContent = fmt(ovTotal(today));
+
+  // Día por horas
+  const wd = (new Date(st.day + "T12:00:00").getDay() + 6) % 7;
+  document.getElementById("d-title").textContent = (st.day === todayStr() ? "Hoy, " + DAY_LONG[wd].toLowerCase() : DAY_LONG[wd]) + " " + d.title.slice(0, 5);
+  const dTot = ovTotal(d);
+  document.getElementById("d-sum").innerHTML = dTot
+    ? `<b>${fmt(dTot)}</b> con el ordenador · ${splitText(d)}<br><span class="muted">Horas con uso: ${hourRanges(d)}</span>`
+    : `<span class="muted">Sin uso este día.</span>`;
+  drawChart("chart-day", "legend-day", d.labels.map(l => l.slice(0, 2)), ovSeries(d));
+  document.getElementById("d-progs").innerHTML = progLists(d, false);
+
+  // Semana por días
+  document.getElementById("w-title").textContent = w.title;
+  const wTot = ovTotal(w);
+  const perDay = w.labels.map((_, i) => OVERVIEW.reduce((a, [k]) => a + w.overview[k][i], 0));
+  const used = perDay.filter(v => v > 0).length;
+  const iMax = perDay.indexOf(Math.max(...perDay));
+  document.getElementById("w-sum").innerHTML = wTot
+    ? `<b>${fmt(wTot)}</b> en la semana · media ${fmt(wTot / Math.max(1, used))} por día con uso · el que más: ${esc(w.labels[iMax])} (${fmt(perDay[iMax])})<br><span class="muted">${splitText(w)}</span>`
+    : `<span class="muted">Sin uso esta semana.</span>`;
+  const sel = w.labels.findIndex((_, i) => dayOf(w, i) === st.day);
+  drawChart("chart-week", "legend-week", w.labels, ovSeries(w), null, sel, i => { st.day = dayOf(w, i); loadUsage(); });
+  document.getElementById("w-progs").innerHTML = progLists(w, true);
 }
 
-function drawChart(chartId, legendId, labels, series, extra) {
+function drawChart(chartId, legendId, labels, series, extra, selected = -1, onPick = null) {
   const col = s => s.color || color(s.name);
   const W = 900, H = 280, L = 44, B = 26, T = 10, n = labels.length;
   const totals = labels.map((_, i) => series.reduce((a, s) => a + s.seconds[i], 0));
@@ -315,11 +361,14 @@ function drawChart(chartId, legendId, labels, series, extra) {
   labels.forEach((lab, i) => {
     let acc = 0;
     const x = L + i * bw + bw * 0.15, w = bw * 0.7;
+    g += `<g data-i="${i}">`;
+    if (onPick) g += `<rect x="${L + i * bw}" y="${T}" width="${bw}" height="${H - T - B}" fill="transparent"/>`;
     series.forEach(s => {
       const v = s.seconds[i]; if (!v) return;
       const y1 = y(acc + v), y0 = y(acc); acc += v;
-      g += `<rect x="${x}" y="${y1}" width="${w}" height="${Math.max(0.5, y0 - y1)}" fill="${col(s)}" rx="2"><title>${esc(lab)} · ${esc(s.name)}: ${fmt(v)}</title></rect>`;
+      g += `<rect x="${x}" y="${y1}" width="${w}" height="${Math.max(0.5, y0 - y1)}" fill="${col(s)}" rx="2"${i === selected ? ' class="bar-sel"' : ""}><title>${esc(lab)} · ${esc(s.name)}: ${fmt(v)}</title></rect>`;
     });
+    g += `</g>`;
     const showLab = n <= 14 || i % Math.ceil(n / 14) === 0;
     if (showLab) g += `<text x="${L + i * bw + bw / 2}" y="${H - 8}" text-anchor="middle">${esc(lab)}</text>`;
   });
@@ -327,6 +376,7 @@ function drawChart(chartId, legendId, labels, series, extra) {
   document.getElementById(legendId).innerHTML = (extra ? `<strong>${esc(extra)}</strong>` : "")
     + series.map(s => `<span><span class="sw" style="background:${col(s)}"></span>${esc(s.name)} · ${fmt(s.total)}</span>`).join("")
     + (series.length ? "" : `<span class="muted">Sin datos en este periodo.</span>`);
+  if (onPick) document.querySelectorAll(`#${chartId} g[data-i]`).forEach(el => el.onclick = () => onPick(Number(el.dataset.i)));
 }
 
 // ---------------- alarmas de tu hijo ----------------
@@ -365,12 +415,9 @@ async function addAlarm(kind, minutes, text) {
   catch (e) { toast(e.message); }
 }
 
-function shiftDate(dir) {
-  const d = new Date(st.date + "T12:00:00");
-  if (st.period === "day") d.setDate(d.getDate() + dir);
-  else if (st.period === "week") d.setDate(d.getDate() + 7 * dir);
-  else { d.setDate(1); d.setMonth(d.getMonth() + dir); }
-  st.date = todayStr(d); loadUsage();
+function shiftDate(key, days) {
+  const d = new Date(st[key] + "T12:00:00"); d.setDate(d.getDate() + days);
+  st[key] = todayStr(d); loadUsage();
 }
 
 // ---------------- panel de padres ----------------
@@ -461,11 +508,12 @@ async function refresh() { try { await loadDevices(); await loadUsage(); } catch
     document.getElementById("a-min").value, document.getElementById("a-text").value.trim());
   document.querySelectorAll("[data-quick]").forEach(b => b.onclick = () => addAlarm("timer", b.dataset.quick, ""));
   document.getElementById("title").textContent = st.readonly ? "Mi tiempo de pantalla" : "Control parental";
-  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => { st.period = b.dataset.p; loadUsage(); });
-  document.getElementById("prev").onclick = () => shiftDate(-1);
-  document.getElementById("next").onclick = () => shiftDate(1);
-  document.getElementById("today").onclick = () => { st.date = todayStr(); loadUsage(); };
-  document.getElementById("detail").onchange = loadUsage;
+  document.getElementById("d-prev").onclick = () => shiftDate("day", -1);
+  document.getElementById("d-next").onclick = () => shiftDate("day", 1);
+  document.getElementById("d-today").onclick = () => { st.day = todayStr(); loadUsage(); };
+  document.getElementById("w-prev").onclick = () => shiftDate("week", -7);
+  document.getElementById("w-next").onclick = () => shiftDate("week", 7);
+  document.getElementById("w-today").onclick = () => { st.week = st.day = todayStr(); loadUsage(); };
   document.getElementById("device").onchange = e => { st.device = e.target.value; st.colors = {}; refresh(); if (!st.readonly) loadConfig(); };
   document.querySelectorAll("[data-block]").forEach(b => b.onclick = () => block(b.dataset.block));
   document.getElementById("unblock-all").onclick = () => unblock(null);
